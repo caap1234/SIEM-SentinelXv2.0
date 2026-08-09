@@ -149,7 +149,7 @@ class NormalizedEvent(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     timestamp_utc: datetime = Field(default_factory=_utc_now, alias="@timestamp", description="Timestamp UTC ISO 8601 del evento")
-    schema: SchemaMeta = Field(default_factory=SchemaMeta)
+    sentinelx_schema: SchemaMeta = Field(default_factory=SchemaMeta, alias="schema", description="Metadatos del esquema SentinelX")
 
     event: EventMeta = Field(default_factory=EventMeta)
     tenant: TenantMeta = Field(default_factory=TenantMeta)

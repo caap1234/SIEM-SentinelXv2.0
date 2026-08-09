@@ -21,8 +21,8 @@ from app.parsing.cpanel_access import CPanelAccessParser
 
 def test_normalized_event_defaults():
     event = NormalizedEvent()
-    assert event.schema.name == "sentinelx-ecs"
-    assert event.schema.version == "1.0.0"
+    assert event.sentinelx_schema.name == "sentinelx-ecs"
+    assert event.sentinelx_schema.version == "1.0.0"
     assert event.tenant.id == "default"
     assert event.event.kind == "event"
     assert isinstance(event.timestamp_utc, datetime)

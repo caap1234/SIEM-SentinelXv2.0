@@ -22,6 +22,22 @@ services:
       retries: 20
       start_period: 20s
 
+  nats:
+    image: nats:2.10-alpine
+    container_name: sentinelx-nats
+    restart: unless-stopped
+    command: ["-js", "-m", "8222", "-sd", "/data"]
+    ports:
+      - "${NATS_PORT:-4222}:4222"
+      - "${NATS_MGMT_PORT:-8222}:8222"
+    volumes:
+      - natsdata:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   backend:
     build:
       context: .
@@ -104,3 +120,4 @@ services:
 
 volumes:
   pgdata:
+  natsdata:

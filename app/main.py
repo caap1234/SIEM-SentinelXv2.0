@@ -28,11 +28,12 @@ from app.routers.admin_maintenance import router as admin_maintenance_router
 from app.routers.incident_rules import router as incident_rules_router
 from app.routers.settings import router as settings_router
 from app.api.internal.jobs_blacklistmaster import router as blacklistmaster_jobs_router
+from app.routers import ingest_v1
 
 app = FastAPI(
     title="SentinelX SIEM API",
-    version="0.2.0",
-    description="Backend API para SentinelX SIEM (v2).",
+    version="2.1.0-enterprise",
+    description="SentinelX SIEM Enterprise API - ECS-Normalised, NATS JetStream Ingestion, Stateless.",
 )
 
 # CORS: producción + desarrollo
@@ -78,6 +79,7 @@ def health_check():
 
 
 # Routers
+app.include_router(ingest_v1.router)
 app.include_router(auth.router)
 app.include_router(logs.router)
 app.include_router(api_keys.router)
@@ -93,3 +95,4 @@ app.include_router(entities.router)
 app.include_router(incident_rules_router)
 app.include_router(processes.router)
 app.include_router(blacklistmaster_jobs_router)
+
