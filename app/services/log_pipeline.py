@@ -384,10 +384,26 @@ def parse_log_file(file_path: str, server: str, log_type: str, upload_id: int) -
                         events_created += 1
                         lines_parsed += 1
 
-                except Exception:
+                except Exception as line_err:
                     lines_failed += 1
+                    err_sample = {
+                        "line_no": line_no,
+                        "raw_line_snippet": raw_line[:200],
+                        "parser": log_type,
+                        "reason": f"{type(line_err).__name__}: {line_err}",
+                    }
+                    meta = dict(log.extra_meta or {})
+                    parsing_errors = list(meta.get("parsing_errors") or [])
+                    if len(parsing_errors) < 100:
+                        parsing_errors.append(err_sample)
+                    meta["parsing_errors"] = parsing_errors
+                    log.extra_meta = meta
+
                     if lines_failed >= MAX_LINE_ERRORS:
-                        raise RuntimeError(f"Too many line errors: {lines_failed}")
+                        # Log error threshold reached, but DO NOT rollback valid events!
+                        meta["warning"] = f"Reached MAX_LINE_ERRORS ({lines_failed}). Processing stopped for remaining lines."
+                        log.extra_meta = meta
+                        break
 
                 if events_created and (events_created % BATCH_EVENTS == 0):
                     db.commit()
@@ -396,8 +412,8 @@ def parse_log_file(file_path: str, server: str, log_type: str, upload_id: int) -
 
         log = db.query(LogUpload).filter(LogUpload.id == upload_id).first()
         if log:
-            log.status = "parsed"
-            log.error_message = None
+            log.status = "parsed_with_errors" if lines_failed > 0 else "parsed"
+            log.error_message = f"{lines_failed} line parse errors encountered" if lines_failed > 0 else None
             _update_log_meta(
                 log,
                 log_type=log_type,
@@ -415,12 +431,16 @@ def parse_log_file(file_path: str, server: str, log_type: str, upload_id: int) -
             db.commit()
 
     except Exception as e:
-        db.rollback()
+        # Unexpected fatal file I/O or system error - commit whatever batches were processed so far
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
 
         log = db.query(LogUpload).filter(LogUpload.id == upload_id).first()
         if log:
             log.status = "error"
-            log.error_message = f"{type(e).__name__}: {e}"
+            log.error_message = f"Fatal pipeline error: {type(e).__name__}: {e}"
             _update_log_meta(
                 log,
                 log_type=log_type,
