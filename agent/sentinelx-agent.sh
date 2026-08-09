@@ -57,13 +57,17 @@ MAX_FORWARD_SCAN_BYTES="${SENTINELX_MAX_FORWARD_SCAN_BYTES:-8388608}"     # busc
 # Python (recomendado)
 PYTHON_BIN="${SENTINELX_PYTHON_BIN:-python3}"
 
-# Si el backend está caído (sin HTTP) o devuelve 5xx/429:
-# 1 = reset (purga spool + borra states) y sale sin encolar
-RESET_ON_BACKEND_DOWN="${SENTINELX_RESET_ON_BACKEND_DOWN:-1}"
+# SECURITY FIX (Fase 0.5): Si el backend está caído (sin HTTP) o devuelve 5xx/429:
+# 0 = preservar spool y states (SEGURO - default)
+# 1 = reset (purga spool + borra states) y sale sin encolar [PELIGROSO: PÉRDIDA DE EVENTOS]
+# IMPORTANTE: Nunca uses RESET_ON_BACKEND_DOWN=1 en producción.
+# El agente preservará el spool hasta que el backend recupere conectividad.
+RESET_ON_BACKEND_DOWN="${SENTINELX_RESET_ON_BACKEND_DOWN:-0}"
 
-# NUEVO: Si cualquier envío falla (por ejemplo 502):
-# 1 = reset (purga spool + borra states) y termina corrida
-RESET_ON_SEND_FAILURE="${SENTINELX_RESET_ON_SEND_FAILURE:-1}"
+# SECURITY FIX (Fase 0.5): Si cualquier envío falla (por ejemplo 502):
+# 0 = preservar spool y reintentarlo en la próxima ejecución (SEGURO - default)
+# 1 = reset (purga spool + borra states) y termina corrida [PELIGROSO: PÉRDIDA DE EVENTOS]
+RESET_ON_SEND_FAILURE="${SENTINELX_RESET_ON_SEND_FAILURE:-0}"
 
 mkdir -p "$STATE_DIR" "$SPOOL_DIR" "$TMP_DIR" "$(dirname "$LOCK_FILE")"
 umask 027
@@ -128,10 +132,66 @@ reset_states() {
 }
 
 reset_for_next_run_due_to_failure() {
-  # Esto fuerza que el siguiente run vuelva a mandar SOLO contexto (últimas N líneas)
-  log "WARN reset_queue: purga spool y resetea states para siguiente run (first_run=context_lines=${FIRST_RUN_CONTEXT_LINES})."
-  purge_spool
-  reset_states
+  # SECURITY FIX: Esta función YA NO purga spool por defecto.
+  # Solo purga si el usuario configuró explícitamente RESET_ON_BACKEND_DOWN=1
+  # o RESET_ON_SEND_FAILURE=1, lo cual se considera PELIGROSO.
+  #
+  # Comportamiento seguro (default): preservar spool y states.
+  # El siguiente run retomará desde donde se detuvo.
+  log "WARN backend_failure: spool PRESERVADO. El offset será retomado en la próxima ejecución."
+  set_agent_state "delayed"
+}
+
+# ------------------------------------------------------------
+# Estado del agente (máquina de estados persistente)
+# Estados: healthy | delayed | offline | spool_warning | spool_critical | authentication_failed | configuration_error
+# ------------------------------------------------------------
+AGENT_STATE_FILE="${STATE_DIR}/agent_state.json"
+AGENT_STATE="healthy"
+
+set_agent_state() {
+  local new_state="$1"
+  local reason="${2:-}"
+  AGENT_STATE="$new_state"
+  local ts
+  ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  cat > "$AGENT_STATE_FILE" <<EOF
+{
+  "state": "${new_state}",
+  "reason": "${reason}",
+  "timestamp_utc": "${ts}",
+  "pid": $$,
+  "version": "1.0.0-enterprise",
+  "spool_dir": "${SPOOL_DIR}",
+  "state_dir": "${STATE_DIR}"
+}
+EOF
+  log "AGENT_STATE state=${new_state} reason=${reason}"
+}
+
+check_spool_size() {
+  local spool_bytes
+  local spool_warn_bytes=$(( ${SENTINELX_SPOOL_WARN_MB:-500} * 1024 * 1024 ))
+  local spool_crit_bytes=$(( ${SENTINELX_SPOOL_CRIT_MB:-1024} * 1024 * 1024 ))
+
+  shopt -s nullglob
+  local jobs=( "${SPOOL_DIR}"/* )
+  shopt -u nullglob
+
+  if [[ ${#jobs[@]} -eq 0 ]]; then
+    return 0
+  fi
+
+  spool_bytes="$(du -sb "${SPOOL_DIR}" 2>/dev/null | awk '{print $1}' || echo 0)"
+
+  if (( spool_bytes >= spool_crit_bytes )); then
+    set_agent_state "spool_critical" "spool_bytes=${spool_bytes} >= critical_limit=${spool_crit_bytes}"
+    return 2
+  elif (( spool_bytes >= spool_warn_bytes )); then
+    set_agent_state "spool_warning" "spool_bytes=${spool_bytes} >= warn_limit=${spool_warn_bytes}"
+    return 1
+  fi
+  return 0
 }
 
 # ------------------------------------------------------------
@@ -142,23 +202,34 @@ reset_for_next_run_due_to_failure() {
 backend_reachable() {
   local http_code
   http_code="$(
-    curl -sS \
-      --connect-timeout "$CONNECT_TIMEOUT" \
-      --max-time "$CONNECT_TIMEOUT" \
-      -H "X-API-Key: ${SENTINELX_API_KEY}" \
-      -o /dev/null \
-      -w "%{http_code}" \
-      -I \
+    curl -sS \\
+      --connect-timeout "$CONNECT_TIMEOUT" \\
+      --max-time "$CONNECT_TIMEOUT" \\
+      -H "X-API-Key: ${SENTINELX_API_KEY}" \\
+      -o /dev/null \\
+      -w "%{http_code}" \\
+      -I \\
       "$SENTINELX_INGEST_URL" || true
   )"
 
   if [[ -z "$http_code" || "$http_code" == "000" ]]; then
+    set_agent_state "offline" "no_http_response connect_timeout=${CONNECT_TIMEOUT}s"
     return 1
   fi
-  # 5xx y 429 => tratamos como no alcanzable para NO encolar / no crecer spool
-  if [[ "$http_code" == 429 || "$http_code" =~ ^5 ]]; then
+
+  # 401/403 => authentication_failed
+  if [[ "$http_code" == "401" || "$http_code" == "403" ]]; then
+    set_agent_state "authentication_failed" "http_code=${http_code}"
     return 1
   fi
+
+  # 5xx y 429 => backend degradado
+  if [[ "$http_code" == "429" || "$http_code" =~ ^5 ]]; then
+    set_agent_state "delayed" "backend_degraded http_code=${http_code}"
+    return 1
+  fi
+
+  set_agent_state "healthy"
   return 0
 }
 
@@ -662,21 +733,35 @@ main() {
 
   log "START mode=${mode_detected} first_run=tail_lines context_lines=${FIRST_RUN_CONTEXT_LINES} scan_mb=${FIRST_RUN_SCAN_MB} fallback_mb=${FIRST_RUN_BACKFILL_MB} chunk_mb=${CHUNK_MB} max_seconds=${MAX_SECONDS_PER_RUN} scan_back=${MAX_NEWLINE_SCAN_BYTES} scan_fwd=${MAX_FORWARD_SCAN_BYTES} reset_on_backend_down=${RESET_ON_BACKEND_DOWN} reset_on_send_failure=${RESET_ON_SEND_FAILURE} python=$("$PYTHON_BIN" -V 2>&1 | tr -d '\r')"
 
-  # 0) Preflight backend: si NO está sano (000/5xx/429), reset y salir sin encolar
+  # -- Monitor spool size before proceeding --
+  check_spool_size || true  # warning/critical states set inside, but we continue
+
+  # 0) Preflight backend: si NO está sano, PRESERVAR spool y salir limpiamente
   if ! backend_reachable; then
     if [[ "$RESET_ON_BACKEND_DOWN" == "1" ]]; then
-      log "WARN backend_unhealthy: no se encolará nada (preflight)."
-      reset_for_next_run_due_to_failure
-      log "END (backend unhealthy)"
-      return 0
+      # PELIGROSO: solo si el usuario explícitamente lo configura
+      log "WARN backend_unhealthy: RESET_ON_BACKEND_DOWN=1 - PURGA DE SPOOL (PELIGROSO - PÉRDIDA DE EVENTOS)."
+      purge_spool
+      reset_states
+    else
+      # Comportamiento SEGURO (default): preservar spool y salir limpiamente
+      log "INFO backend_unhealthy: spool PRESERVADO. Se reintentará en la próxima ejecución. Estado: ${AGENT_STATE}"
     fi
-    log "WARN backend_unhealthy but RESET_ON_BACKEND_DOWN=0; continuará (podría encolar)."
+    log "END (backend unhealthy - spool preserved by default)"
+    return 0
   fi
 
-  # 1) manda lo pendiente primero (si falla y está habilitado reset, se resetea dentro y se termina)
+  # 1) manda lo pendiente del spool primero
   if ! flush_spool; then
-    log "END (flush failed)"
-    return 1
+    if [[ "$RESET_ON_SEND_FAILURE" == "1" ]]; then
+      log "WARN flush_failed con RESET_ON_SEND_FAILURE=1: PURGA DE SPOOL (PELIGROSO - PÉRDIDA DE EVENTOS)."
+      purge_spool
+      reset_states
+    else
+      log "WARN flush_failed: spool PRESERVADO. Se reintentará en la próxima ejecución."
+    fi
+    log "END (flush failed - spool preserved by default)"
+    return 0
   fi
 
   # 2) encola por archivo hasta su snapshot
@@ -691,13 +776,22 @@ main() {
   # 3) SAR si hay tiempo
   time_exceeded || sar_send_logic
 
-  # 4) flush final (si falla, reset dentro y termina)
+  # 4) flush final
   if ! flush_spool; then
-    log "END (flush failed final)"
-    return 1
+    if [[ "$RESET_ON_SEND_FAILURE" == "1" ]]; then
+      log "WARN final_flush_failed con RESET_ON_SEND_FAILURE=1: PURGA DE SPOOL (PELIGROSO)."
+      purge_spool
+      reset_states
+    else
+      log "WARN final_flush_failed: spool PRESERVADO. Se reintentará en la próxima ejecución."
+    fi
+    log "END (final flush failed - spool preserved)"
+    return 0
   fi
 
-  log "END"
+  # Éxito completo
+  set_agent_state "healthy"
+  log "END success state=${AGENT_STATE}"
 }
 
 main "$@"
