@@ -19,6 +19,14 @@ SessionLocal = sessionmaker(
     expire_on_commit=False,  # <- evita expirar instancias ORM tras commit (clave para engine cache)
 )
 
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.dialects.postgresql import JSONB
+
+# Compilador de respaldo para renderizar JSONB como JSON en SQLite durante pruebas
+@compiles(JSONB, "sqlite")
+def compile_jsonb_sqlite(type_, compiler, **kw):
+    return "JSON"
+
 # Base para los modelos ORM
 Base = declarative_base()
 
