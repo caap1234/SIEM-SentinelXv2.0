@@ -8,7 +8,7 @@ from app.parsing.types import ParsedEvent
 
 from app.parsing.apache_access import ApacheAccessParser
 from app.parsing.apache_error_log import ApacheErrorLogParser
-from app.parsing.nginx_access import NginxAccessParser  # <-- NUEVO
+from app.parsing.nginx_access import NginxAccessParser
 from app.parsing.cpanel_access import CPanelAccessParser
 from app.parsing.exim_mainlog import EximMainlogParser
 from app.parsing.lfd_log import LfdLogParser
@@ -19,16 +19,16 @@ from app.parsing.system_logs import SystemLogParser
 from app.parsing.system_secure import SecureLogParser
 from app.parsing.wp_error_log import WpErrorLogParser
 from app.parsing.maillog_dovecot import MaillogDovecotParser
+from app.parsing.imunify360 import Imunify360Parser
+from app.parsing.auditd_log import AuditdParser
 
-
-# Nota: wp_from_apache_error lo usa ApacheErrorLogParser internamente
 
 DEFAULT_PARSERS: Dict[str, LogParser] = {
     "APACHE_ACCESS": ApacheAccessParser(),
-    "NGINX_ACCESS": NginxAccessParser(),  # <-- NUEVO (domlogs nginx /var/log/nginx/domains/*)
+    "NGINX_ACCESS": NginxAccessParser(),
     "APACHE_ERROR": ApacheErrorLogParser(),
-    "PANEL_ACCESS": CPanelAccessParser(),     # access_log de cPanel (apache-like)
-    "PANEL_LOGIN": PanelLogParser(),          # login_log simplificado (si lo usas)
+    "PANEL_ACCESS": CPanelAccessParser(),
+    "PANEL_LOGIN": PanelLogParser(),
     "EXIM_MAINLOG": EximMainlogParser(),
     "MAILLOG": MaillogDovecotParser(),
     "LFD": LfdLogParser(),
@@ -37,6 +37,8 @@ DEFAULT_PARSERS: Dict[str, LogParser] = {
     "SYSTEM": SystemLogParser(),
     "SSH_SECURE": SecureLogParser(),
     "WP_ERROR": WpErrorLogParser(),
+    "IMUNIFY360": Imunify360Parser(),
+    "AUDITD": AuditdParser(),
 }
 
 
