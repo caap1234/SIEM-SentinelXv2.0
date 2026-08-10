@@ -189,14 +189,12 @@ PY
 }
 
 ensure_docker_compose_file() {
-  if [[ ! -f "${COMPOSE_FILE}" ]]; then
-    if [[ -f "${COMPOSE_EXAMPLE_FILE}" ]]; then
-      log_info "Generando ${COMPOSE_FILE} desde ${COMPOSE_EXAMPLE_FILE}..."
-      cp -f "${COMPOSE_EXAMPLE_FILE}" "${COMPOSE_FILE}"
-    elif [[ -f "${ROOT_DIR}/docker-compose.local.yml" ]]; then
-      log_info "Generando ${COMPOSE_FILE} desde docker-compose.local.yml..."
-      cp -f "${ROOT_DIR}/docker-compose.local.yml" "${COMPOSE_FILE}"
-    fi
+  if [[ -f "${COMPOSE_EXAMPLE_FILE}" ]]; then
+    log_info "Sincronizando ${COMPOSE_FILE} con la plantilla de producción (${COMPOSE_EXAMPLE_FILE})..."
+    cp -f "${COMPOSE_EXAMPLE_FILE}" "${COMPOSE_FILE}"
+  elif [[ -f "${ROOT_DIR}/docker-compose.local.yml" ]]; then
+    log_info "Sincronizando ${COMPOSE_FILE} desde docker-compose.local.yml..."
+    cp -f "${ROOT_DIR}/docker-compose.local.yml" "${COMPOSE_FILE}"
   fi
 }
 

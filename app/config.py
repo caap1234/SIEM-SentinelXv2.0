@@ -1,8 +1,19 @@
 # app/config.py
+import os
 from typing import Optional
 from pydantic import EmailStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Si se ejecuta dentro de un contenedor Docker, reemplazar localhost por nombres de servicio internos en variables de entorno
+if os.path.exists("/.dockerenv"):
+    db_url = os.getenv("DATABASE_URL", "")
+    if db_url:
+        os.environ["DATABASE_URL"] = (
+            db_url.replace("@localhost:", "@db:")
+            .replace("@127.0.0.1:", "@db:")
+            .replace("@localhost/", "@db/")
+            .replace("@127.0.0.1/", "@db/")
+        )
 
 class Settings(BaseSettings):
     # --- Backend / JWT / DB ---
@@ -34,9 +45,8 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Autodetectar ejecución dentro de Docker y corregir localhost por nombres de servicio Docker
-import os
 if os.path.exists("/.dockerenv"):
     if "@localhost:" in settings.DATABASE_URL or "@127.0.0.1:" in settings.DATABASE_URL:
         settings.DATABASE_URL = settings.DATABASE_URL.replace("@localhost:", "@db:").replace("@127.0.0.1:", "@db:")
-
+    elif "@localhost/" in settings.DATABASE_URL or "@127.0.0.1/" in settings.DATABASE_URL:
+        settings.DATABASE_URL = settings.DATABASE_URL.replace("@localhost/", "@db/").replace("@127.0.0.1/", "@db/")
