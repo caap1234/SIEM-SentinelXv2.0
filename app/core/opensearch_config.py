@@ -5,11 +5,19 @@ Configuración de OpenSearch, Index Templates ECS-compliant, Mappings y Polític
 from __future__ import annotations
 
 import os
+from urllib.parse import urlparse, urlunparse
 from typing import Any, Dict
 
 OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://localhost:9200")
-if os.path.exists("/.dockerenv") and ("localhost" in OPENSEARCH_URL or "127.0.0.1" in OPENSEARCH_URL):
-    OPENSEARCH_URL = OPENSEARCH_URL.replace("localhost", "opensearch").replace("127.0.0.1", "opensearch")
+if os.path.exists("/.dockerenv"):
+    try:
+        p = urlparse(OPENSEARCH_URL)
+        if p.hostname in ("localhost", "127.0.0.1"):
+            port_str = f":{p.port}" if p.port else ""
+            OPENSEARCH_URL = urlunparse(p._replace(netloc=f"opensearch{port_str}"))
+    except Exception:
+        pass
+
 OPENSEARCH_USER = os.getenv("OPENSEARCH_USER", "admin")
 OPENSEARCH_PASSWORD = os.getenv("OPENSEARCH_PASSWORD", "admin")
 OPENSEARCH_VERIFY_CERTS = os.getenv("OPENSEARCH_VERIFY_CERTS", "false").lower() == "true"

@@ -1,19 +1,43 @@
 # app/config.py
 import os
+from urllib.parse import urlparse, urlunparse
 from typing import Optional
 from pydantic import EmailStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Si se ejecuta dentro de un contenedor Docker, reemplazar localhost por nombres de servicio internos en variables de entorno
+
+def _fix_docker_hostname(url: str, target_host: str) -> str:
+    """Reemplaza localhost/127.0.0.1 por target_host usando urlparse para no dañar contraseñas con caracteres especiales."""
+    if not url:
+        return url
+    try:
+        parsed = urlparse(url)
+        if parsed.hostname in ("localhost", "127.0.0.1"):
+            user_pass = ""
+            if parsed.username:
+                user_pass += parsed.username
+                if parsed.password:
+                    user_pass += f":{parsed.password}"
+                user_pass += "@"
+            port_str = f":{parsed.port}" if parsed.port else ""
+            new_netloc = f"{user_pass}{target_host}{port_str}"
+            return urlunparse(parsed._replace(netloc=new_netloc))
+    except Exception:
+        pass
+    return url
+
+
+# Si se ejecuta dentro de un contenedor Docker, corregir localhost por nombres de servicio de Docker
 if os.path.exists("/.dockerenv"):
-    db_url = os.getenv("DATABASE_URL", "")
-    if db_url:
-        os.environ["DATABASE_URL"] = (
-            db_url.replace("@localhost:", "@db:")
-            .replace("@127.0.0.1:", "@db:")
-            .replace("@localhost/", "@db/")
-            .replace("@127.0.0.1/", "@db/")
-        )
+    if "DATABASE_URL" in os.environ:
+        os.environ["DATABASE_URL"] = _fix_docker_hostname(os.environ["DATABASE_URL"], "db")
+    if "OPENSEARCH_URL" in os.environ:
+        os.environ["OPENSEARCH_URL"] = _fix_docker_hostname(os.environ["OPENSEARCH_URL"], "opensearch")
+    if "NATS_URL" in os.environ:
+        os.environ["NATS_URL"] = _fix_docker_hostname(os.environ["NATS_URL"], "nats")
+    if "MINIO_ENDPOINT" in os.environ:
+        os.environ["MINIO_ENDPOINT"] = _fix_docker_hostname(os.environ["MINIO_ENDPOINT"], "minio")
+
 
 class Settings(BaseSettings):
     # --- Backend / JWT / DB ---
@@ -46,7 +70,4 @@ class Settings(BaseSettings):
 settings = Settings()
 
 if os.path.exists("/.dockerenv"):
-    if "@localhost:" in settings.DATABASE_URL or "@127.0.0.1:" in settings.DATABASE_URL:
-        settings.DATABASE_URL = settings.DATABASE_URL.replace("@localhost:", "@db:").replace("@127.0.0.1:", "@db:")
-    elif "@localhost/" in settings.DATABASE_URL or "@127.0.0.1/" in settings.DATABASE_URL:
-        settings.DATABASE_URL = settings.DATABASE_URL.replace("@localhost/", "@db/").replace("@127.0.0.1/", "@db/")
+    settings.DATABASE_URL = _fix_docker_hostname(settings.DATABASE_URL, "db")

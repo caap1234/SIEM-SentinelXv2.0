@@ -183,7 +183,7 @@ PY
 gen_password() {
   python3 - <<'PY'
 import secrets, string
-alphabet = string.ascii_letters + string.digits + "!@#_=+-"
+alphabet = string.ascii_letters + string.digits + "_-!"
 print("".join(secrets.choice(alphabet) for _ in range(24)))
 PY
 }
