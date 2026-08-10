@@ -202,10 +202,11 @@ setup_python_venv() {
     python3 -m venv "${ROOT_DIR}/.venv"
   fi
 
-  "${ROOT_DIR}/.venv/bin/python" -m pip install --upgrade pip setuptools wheel >/dev/null 2>&1 || true
+  log_info "Actualizando pip, setuptools y wheel..."
+  "${ROOT_DIR}/.venv/bin/python" -m pip install --upgrade pip setuptools wheel
   if [[ -f "${ROOT_DIR}/requirements.txt" ]]; then
     log_info "Instalando dependencias de Python desde requirements.txt..."
-    "${ROOT_DIR}/.venv/bin/pip" install -r "${ROOT_DIR}/requirements.txt" >/dev/null
+    "${ROOT_DIR}/.venv/bin/pip" install -r "${ROOT_DIR}/requirements.txt"
   fi
 }
 
