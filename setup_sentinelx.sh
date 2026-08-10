@@ -573,9 +573,19 @@ elif [[ "${DEPLOY_MODE}" == "2" ]]; then
   if has_cmd docker && docker compose version >/dev/null 2>&1; then
     ensure_docker_compose_file
     log_info "Levantando stack Docker Compose (Escala calculada: parsing_worker=${PARSING_WORKERS}, engine_worker=${ENGINE_WORKERS})...."
-    docker compose -f "${COMPOSE_FILE}" up -d --build \
+    if ! docker compose -f "${COMPOSE_FILE}" up -d --build \
       --scale "parsing_worker=${PARSING_WORKERS}" \
-      --scale "engine_worker=${ENGINE_WORKERS}"
+      --scale "engine_worker=${ENGINE_WORKERS}"; then
+      log_warn "Aviso en la red/iptables de Docker. Reiniciando servicio de Docker (systemctl restart docker)..."
+      if is_root && has_cmd systemctl; then
+        systemctl restart docker
+        sleep 3
+        log_info "Reintentando levantar el stack Docker Compose..."
+        docker compose -f "${COMPOSE_FILE}" up -d --build \
+          --scale "parsing_worker=${PARSING_WORKERS}" \
+          --scale "engine_worker=${ENGINE_WORKERS}"
+      fi
+    fi
   else
     log_warn "Docker no disponible. Por favor instale Docker para usar la opción 2."
   fi
