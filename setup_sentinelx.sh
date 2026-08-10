@@ -3,6 +3,7 @@
 # SentinelX SIEM — Script de Instalación y Despliegue de Producción
 # - Instalación idempotente para VPS Limpio o VPS con cPanel/WHM.
 # - Detección automática de SO (AlmaLinux, Rocky, CentOS, RHEL, Ubuntu, Debian).
+# - Cálculo automático de Workers (Parsing & Engine) según CPU/RAM del servidor.
 # - Soporte para despliegue por Servicios Systemd o por Docker Compose.
 # - Aislamiento en /opt/sentinelx y logs en /var/log/sentinelx/install.log.
 # ============================================================
@@ -81,6 +82,38 @@ detect_os() {
   else
     echo "unknown"
   fi
+}
+
+# ---------- Cálculo Automático de Recursos de Hardware ----------
+calculate_recommended_workers() {
+  local cpus ram_mb
+  if has_cmd nproc; then
+    cpus="$(nproc)"
+  else
+    cpus="$(python3 -c "import os; print(os.cpu_count() or 2)" 2>/dev/null || echo 2)"
+  fi
+
+  if [[ -f /proc/meminfo ]]; then
+    ram_mb="$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 4096)"
+  else
+    ram_mb=4096
+  fi
+
+  local rec_parsing=1
+  local rec_engine=1
+
+  if [[ "$cpus" -ge 8 ]]; then
+    rec_parsing=4
+    rec_engine=2
+  elif [[ "$cpus" -ge 4 ]]; then
+    rec_parsing=2
+    rec_engine=2
+  elif [[ "$cpus" -ge 2 ]]; then
+    rec_parsing=1
+    rec_engine=1
+  fi
+
+  echo "${cpus}:${ram_mb}:${rec_parsing}:${rec_engine}"
 }
 
 install_packages() {
@@ -228,6 +261,13 @@ log_info "Archivo de log: ${INSTALL_LOG}"
 check_cpanel_and_ports
 check_csf_firewall
 
+# Detectar hardware y calcular recomendación de workers
+HW_INFO="$(calculate_recommended_workers)"
+IFS=":" read -r HW_CPUS HW_RAM_MB REC_PARSING REC_ENGINE <<< "${HW_INFO}"
+
+log_info "Recursos de Hardware detectados: ${HW_CPUS} CPU Cores | ~${HW_RAM_MB} MB RAM"
+log_info "Recomendación calculada automáticamente: ${REC_PARSING} Parsing Workers, ${REC_ENGINE} Engine Workers"
+
 # ============================================================
 # MODO DE INSTALACIÓN
 # ============================================================
@@ -237,6 +277,18 @@ echo "1) Instalación Limpia Producción (Systemd + PostgreSQL + Node + Python l
 echo "2) Instalación Docker Compose (Contenedores aislados)"
 echo "3) Instalación Rápida de Prueba (FAST / Localhost)"
 prompt DEPLOY_MODE "Elija opción (1/2/3)" "1" 0 0
+
+# Configurar réplicas de workers
+PARSING_WORKERS="${REC_PARSING}"
+ENGINE_WORKERS="${REC_ENGINE}"
+
+if [[ "${DEPLOY_MODE}" != "3" ]]; then
+  echo
+  echo "Configuración de Workers de Procesamiento:"
+  echo "  (Basado en tus ${HW_CPUS} Cores / ${HW_RAM_MB} MB RAM)"
+  prompt PARSING_WORKERS "Número de Parsing Workers (Normalización & GeoIP)" "${REC_PARSING}" 0 0
+  prompt ENGINE_WORKERS "Número de Engine Workers (Motor de Correlación v2)" "${REC_ENGINE}" 0 0
+fi
 
 # ============================================================
 # CREACIÓN DE ARCHIVO .ENV
@@ -295,6 +347,9 @@ ENRICH_CACHE_TTL=86400
 ENRICH_CACHE_MAX=100000
 RULES_RELOAD_SECONDS=60
 
+PARSING_WORKERS=${PARSING_WORKERS}
+ENGINE_WORKERS=${ENGINE_WORKERS}
+
 FRONTEND_BASE_URL=http://localhost:4321/
 PUBLIC_API_URL=http://localhost:8000
 EOF
@@ -322,11 +377,13 @@ log_info "Ejecutando script de configuración inicial (FIRST_INSTALL)..."
 # ============================================================
 if [[ "${DEPLOY_MODE}" == "1" ]]; then
   install_systemd_services
-  log_info "Instalación por Servicios Systemd completada."
+  log_info "Instalación por Servicios Systemd completada con ${PARSING_WORKERS} Parsing Workers y ${ENGINE_WORKERS} Engine Workers."
 elif [[ "${DEPLOY_MODE}" == "2" ]]; then
   if has_cmd docker && docker compose version >/dev/null 2>&1; then
-    log_info "Levantando stack Docker Compose..."
-    docker compose up -d --build
+    log_info "Levantando stack Docker Compose (Escala calculada: parsing_worker=${PARSING_WORKERS}, engine_worker=${ENGINE_WORKERS})..."
+    docker compose up -d --build \
+      --scale "parsing_worker=${PARSING_WORKERS}" \
+      --scale "engine_worker=${ENGINE_WORKERS}"
   else
     log_warn "Docker no disponible. Por favor instale Docker para usar la opción 2."
   fi
@@ -339,6 +396,11 @@ echo
 echo "============================================================"
 echo "      INSTALACIÓN DE SENTINELX SIEM FINALIZADA CON ÉXITO    "
 echo "============================================================"
+echo " Recursos & Workers Escala:"
+echo "   - CPU / RAM:       ${HW_CPUS} Cores / ~${HW_RAM_MB} MB RAM"
+echo "   - Parsing Workers: ${PARSING_WORKERS}"
+echo "   - Engine Workers:  ${ENGINE_WORKERS}"
+echo "------------------------------------------------------------"
 echo " Credenciales del Administrador Inicial:"
 echo "   - Email:    ${INITIAL_ADMIN_EMAIL:-admin@sentinelx.local}"
 if [[ -n "${INITIAL_ADMIN_PASSWORD:-}" ]]; then
