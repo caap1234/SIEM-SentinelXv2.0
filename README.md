@@ -1,26 +1,29 @@
 <h1 align="center">
   <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/solid/shield-halved.svg" alt="SentinelX Logo" width="120" height="120"/>
   <br>
-  SentinelX
+  SentinelX SIEM v2.0
 </h1>
 
 <p align="center">
-  <b>A Lightweight, Scalable, and Dockerized SIEM (Security Information and Event Management) built for modern infrastructure.</b>
+  <b>A Lightweight, Scalable, Enterprise-Grade SIEM (Security Information and Event Management) for Modern Infrastructure & VPS Environments (cPanel/WHM Compatible).</b>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi" alt="FastAPI">
   <img src="https://img.shields.io/badge/Astro-FF5D01?style=for-the-badge&logo=astro&logoColor=white" alt="Astro">
-  <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL">
+  <img src="https://img.shields.io/badge/OpenSearch-005FE6?style=for-the-badge&logo=opensearch&logoColor=white" alt="OpenSearch">
+  <img src="https://img.shields.io/badge/MinIO-C42B1C?style=for-the-badge&logo=minio&logoColor=white" alt="MinIO">
+  <img src="https://img.shields.io/badge/NATS-276EF1?style=for-the-badge&logo=nats&logoColor=white" alt="NATS">
 </p>
 
 <p align="center">
+  <a href="#overview">Overview</a> •
   <a href="#features">Features</a> •
   <a href="#architecture">Architecture</a> •
-  <a href="#quick-start-zero-touch-installation">Quick Start</a> •
-  <a href="#screenshots">Screenshots</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#documentation">Documentation</a> •
   <a href="README_es.md">🇪🇸 Leer en Español</a>
 </p>
 
@@ -28,125 +31,123 @@
 
 ## 🛡️ Overview
 
-**SentinelX** is a high-performance SIEM platform designed to ingest, parse, normalize, and correlate security logs across your infrastructure. Powered by highly scalable asynchronous workers, it enriches events with GeoIP data and applies real-time anomaly detection rules, offering out-of-the-box alerting and decay mechanisms for entities.
+**SentinelX SIEM v2.0** is an enterprise-grade security intelligence and log correlation platform. Designed to ingest, parse, normalize, and correlate security logs across distributed Linux infrastructure, web servers, and control panels (cPanel/WHM, DirectAdmin).
 
-Whether you run a single VPS or a distributed microservices environment, SentinelX gives you observability and security correlations with a **single command installation**.
+It leverages a **tri-storage architecture**:
+1. **PostgreSQL**: System state, multi-tenant RBAC, rules, security lists, alerts, incidents, reporting metadata.
+2. **OpenSearch**: High-throughput log event storage, full-text searching, and threat hunting analytics.
+3. **MinIO (S3 Object Storage)**: Immutable forensic evidence packages and generated SOC PDF/HTML reports.
 
-## ✨ Features
-
-- **🚀 Automated Zero-Touch Deployment**: SentinelX handles its own passwords, `.env` file generation, network mapping, and Nginx proxying via an interactive installer.
-- **⚡ Asynchronous Processing**: Architected with decoupled `parsing_workers` and `engine_workers` bridging directly to PostgreSQL. Scales horizontally via Docker.
-- **🌍 GeoIP & Entity Enrichment**: Automatically maps IPs to ASNs, countries, and domains for contextual anomalies.
-- **📜 Multi-Service Log Normalization**: Native parsers for `Apache`, `Nginx`, `Exim`, `Dovecot`, `SSH`, and `ModSecurity`.
-- **🎯 Dynamic Rule Engine**: Time-decay scoring and behavior-based correlations.
-- **🖥️ Blazing Fast UI**: Dashboard built with Astro and modern JavaScript for snappy analytics.
+Whether deployed on a standalone VPS, cPanel server, or distributed Docker stack, SentinelX provides deep SOC observability with a **single-command installer**.
 
 ---
 
-## 📸 Visual Tour & Screenshots
+## ✨ Key Features
 
-<p align="center">
-  <i>Explore the SentinelX interface: Modern, responsive, and designed for deep security visibility.</i>
-</p>
-
-| **1. Executive Dashboard** | **2. Correlated Alerts** |
-|:---:|:---:|
-| <img src="https://github.com/user-attachments/assets/7aa93035-bccb-434e-a4a1-ba8302b6d8fb" alt="Dashboard Overview" width="100%"> | <img src="https://github.com/user-attachments/assets/7fd10a8e-ad74-4cc9-a823-9485edc13247" alt="Alerts Dashboard" width="100%"> |
-| *Real-time activity charts and security KPIs at a glance.* | *Centralized view of detected threats and correlations.* |
-
-| **3. Deep Forensic Detail** | **4. Incident Management** |
-|:---:|:---:|
-| <img src="https://github.com/user-attachments/assets/b0407ba1-253d-4c9e-9e34-568c34905acf" alt="Alert Details" width="100%"> | <img src="https://github.com/user-attachments/assets/ac772408-84cf-4aa0-8cd1-a908526d3caf" alt="Incident Investigation" width="100%"> |
-| *Extensive evidence collection including raw logs and metrics.* | *Full lifecycle case management for active threats.* |
-
-| **5. Entity Intelligence** | **6. Engine Processes** |
-|:---:|:---:|
-| <img src="https://github.com/user-attachments/assets/a6c7ce6a-59cb-4944-87fa-d97957304e1e" alt="Entity Risk Scoring" width="100%"> | <img src="https://github.com/user-attachments/assets/eda9bd2b-e0ec-43c7-95f7-97b1a675cf53" alt="System Processes" width="100%"> |
-| *Behavioral analysis and risk scoring for IPs and users.* | *Monitoring correlation engine health and ingest pipelines.* |
+- **🚀 1-Command Automated Installer (`setup_sentinelx.sh`)**: Idempotent setup for clean Linux VPS (Ubuntu/Debian/AlmaLinux/RHEL) and cPanel/WHM servers. Logged to `/var/log/sentinelx/install.log`.
+- **🏗️ Tri-Storage Tiering**: Clear separation between PostgreSQL (SOC State), OpenSearch (Logs & Analytics), and MinIO (Forensic S3 Evidence & Reports).
+- **🛡️ Centralized Dynamic Security Lists**: Frontend-managed Whitelists, Rule Exceptions, BlacklistMaster inventory (`shared`, `pmg`, `ignore`), and Reference Lists with in-memory TTL caching and forensic ignore logs.
+- **⚡ Asynchronous Ingest & Correlation Engine**: Decoupled `parsing_worker` and `engine_worker` loops running on NATS JetStream queues.
+- **🌍 GeoIP & Behavioral Risk Scoring**: Enriches events with GeoIP location, ASN mapping, time-decay scoring, and entity tracking.
+- **📊 SOC Reporting & Maintenance Engine**: Automated weekly/monthly/quarterly executive PDF/HTML report generation, S3 storage, and retention purge policies.
+- **⚙️ Dedicated Systemd & cPanel Coexistence**: Operates cleanly under `/opt/sentinelx` with non-conflicting reserved ports (`8000`, `4321`, `5432`, `9200`, `9000`, `4222`).
 
 ---
 
-## 🏗️ Architecture
-
-SentinelX fundamentally relies on a decoupled Publisher/Consumer methodology, highly abstracted through scalable Docker deployment.
+## 🏗️ Enterprise Architecture v2.0
 
 ```mermaid
 flowchart TD
-    A[Servers/Nodes\nSentinelX Agent] -->|Uploads Logs| B(FastAPI Backend)
-    B -->|Persists Raw| DB[(PostgreSQL)]
-    
-    PW[Parsing Workers\nScalable] -->|Fetch Raw Logs| DB
-    PW -->|Normalize & Enrich\nGeoIP / ASN| DB
-    
-    EW[Engine Workers\nCorrelations] -->|Detect Patterns\nScoring & Decay| DB
-    EW -->|Generate| C{Alerts & Incidents}
-    
-    UI[Astro Frontend] <-->|Rest API| B
+    subgraph Clients["Monitored Servers & Agents"]
+        A[Linux Agents / Syslog / cPanel / ModSec]
+    end
+
+    subgraph Ingestion["Ingestion Pipeline"]
+        B[FastAPI Ingest Service]
+        NATS[NATS JetStream Queue]
+    end
+
+    subgraph Processing["Worker Processing Layer"]
+        PW[Parsing Worker\nLog Normalization & GeoIP]
+        EW[Engine Worker v2\nCorrelation & Rule Decay]
+    end
+
+    subgraph Storage["Tri-Storage Architecture"]
+        PG[(PostgreSQL 16\nSOC State & Security Lists)]
+        OS[(OpenSearch 2.x\nEvents & Threat Hunting)]
+        S3[(MinIO S3\nEvidence & Generated Reports)]
+    end
+
+    subgraph Interface["Management & Dashboard"]
+        UI[Astro Web Frontend]
+    end
+
+    A -->|Logs Ingest / Agent API| B
+    B -->|Publish Events| NATS
+    NATS -->|Consume Raw| PW
+    PW -->|Index Normalized Logs| OS
+    PW -->|Persist State| PG
+    EW -->|Evaluate Security Lists & Rules| PG
+    EW -->|Fetch Logs| OS
+    EW -->|Archive Evidence| S3
+    UI <-->|REST API| B
+    B <--> PG
+    B <--> OS
+    B <--> S3
 ```
 
 ---
 
-## ⚡ Quick Start (Zero-Touch Installation)
+## ⚡ Quick Start (Clean VPS / cPanel Install)
 
-Deploying a complex SIEM has never been easier. We provide a tailored, interactive installation script that auto-generates secure passwords, configures Docker Networks, handles Reverse Proxies, and builds the frontend.
+### 1. Clone the Repository
+```bash
+git clone https://github.com/caap1234/SIEM-SentinelXv2.0.git /opt/sentinelx
+cd /opt/sentinelx
+```
 
-**Prerequisites**:
-- Linux (Ubuntu/Debian/RHEL/Alma) recommended.
-- `Docker` and `Docker Compose (v2)`.
+### 2. Run the Production Installer
+```bash
+chmod +x setup_sentinelx.sh
+./setup_sentinelx.sh
+```
 
-### 1-Command Install
+**What the installer does automatically**:
+1. Detects OS and installs system requirements.
+2. Checks cPanel/WHM and configures CSF Firewall rules (`DOCKER="1"`).
+3. Generates secure `.env` configuration file (`chmod 600`).
+4. Creates Python `.venv` and builds Astro frontend static assets.
+5. Runs `scripts/initial_setup.py` (Alembic DB migrations, admin account setup, MinIO bucket creation, OpenSearch indices, and security list seeds).
+6. Registers Systemd services (`sentinelx-api`, `sentinelx-worker`, `sentinelx-ingest`, `sentinelx-frontend`).
+
+---
+
+## 📚 Documentation & Guides
+
+Comprehensive technical documentation is available in the [`docs/`](docs/) directory:
+
+- 📖 **[Installation Guide](docs/INSTALLATION_GUIDE.md)**: Hardware requirements, port matrix, step-by-step VPS/cPanel installation, and troubleshooting.
+- 📋 **[Deployment Checklist](docs/DEPLOYMENT_CHECKLIST.md)**: Pre-production verification list.
+- 🤖 **[Linux Agent Installation Guide](docs/AGENT_INSTALLATION.md)**: 1-line installation script and configuration for monitored client nodes.
+- 📋 **[Security List Architecture Design](docs/LIST_MANAGEMENT_DESIGN.md)**: Dynamic whitelists, rule exceptions, and BlacklistMaster integration.
+- 📑 **[SOC Reporting Architecture](docs/REPORTING_DESIGN.md)**: Executive/operational PDF & HTML report generation and retention policies.
+
+---
+
+## 🤝 System Verification & Testing
+
+SentinelX includes an extensive test suite verifying end-to-end SOC flow, security list precedence, and API integrity:
 
 ```bash
-git clone https://github.com/yourusername/SentinelX-Neubox.git
-cd SentinelX-Neubox
+# Run backend unit test suite (91 tests)
+DATABASE_URL="sqlite:///:memory:" .venv/bin/pytest tests/unit/ -v
 
-# Launch the orchestrator
-bash setup_sentinelx.sh
-```
-
-**What the script does for you:**
-1. Prompts you for a `Local` (Fast Install) or `Server` (Public Domain) environment.
-2. Auto-generates cryptographically secure `POSTGRES_PASSWORD`, `SECRET_KEY`, and `INITIAL_ADMIN_PASSWORD`.
-3. Handles `GeoLite2` database detection.
-4. Spins up a temporary isolated Nginx container if running locally, or configures the Host's Nginx for Public Domains.
-5. Scales the asynchronous workers out-of-the-box (`docker compose up --scale parsing_worker=2`).
-
-### Access the Platform
-Once the script finishes, check your terminal for the Auto-Generated Admin Credentials.
-- **Local Mode:** `http://localhost:4321`
-- **Server Mode:** `https://your-configured-domain.com`
-
----
-
-## 📈 Scalability
-
-SentinelX supports scaling its log-crunching power at any time using Docker Compose:
-
-```bash
-# Add more parsing workers for heavy log ingestion
-docker compose up -d --scale parsing_worker=4 --scale engine_worker=2
+# Build frontend static assets
+npm run build --prefix front
 ```
 
 ---
-
-## 🤝 Contributing
-
-Contributions are always welcome! Whether it's a new log parser, enhanced threat-detection rules, or frontend UI updates:
-
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
----
-
-## 🔒 Security
-
-We take security seriously. 
-- Please **never** commit `.env` files or hardcoded credentials. 
-- Ensure SentinelX is running behind a secure SSL reverse proxy in production environments.
-- Report vulnerabilities to the repository owner directly.
 
 ## 📄 License
-This project is open-source. See the [LICENSE](LICENSE) file for more details.
+
+This project is licensed under the open-source License. See [LICENSE](LICENSE) for details.
