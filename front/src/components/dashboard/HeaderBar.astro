@@ -340,12 +340,13 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
     import { getAuthContext, logout, can, hasRole } from "../../lib/auth.js";
 
     // Exponer ayuda global para componentes y páginas
-    window.SentinelXAuth = {
+    (window as any).SentinelXAuth = {
       getAuthContext,
       logout,
       can,
       hasRole,
     };
+
 
     const ctx = getAuthContext();
     if (!ctx.authenticated && !window.location.pathname.startsWith("/login")) {
@@ -382,8 +383,9 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
       });
 
       document.addEventListener("click", (event) => {
-        if (!container.contains(/** @type {Node} */ (event.target))) closeMenu();
+        if (event.target instanceof Node && !container.contains(event.target)) closeMenu();
       });
+
 
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") closeMenu();
@@ -502,7 +504,7 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
       window.dispatchEvent(new CustomEvent("sentinelx:filters-changed", { detail: filters }));
     };
 
-    const setupFilter = (type) => {
+    const setupFilter = (type: string) => {
       const wrapper = document.querySelector(`[data-filter="${type}"]`);
       if (!wrapper) return;
 
@@ -560,8 +562,8 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
 
       // lógica extra para rango personalizado
       if (type === "date") {
-        const fromInput = wrapper.querySelector("[data-range-from]");
-        const toInput = wrapper.querySelector("[data-range-to]");
+        const fromInput = wrapper.querySelector<HTMLInputElement>("[data-range-from]");
+        const toInput = wrapper.querySelector<HTMLInputElement>("[data-range-to]");
         const applyBtn = wrapper.querySelector("[data-apply-range]");
 
         if (fromInput && toInput) {
@@ -574,8 +576,9 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
         if (applyBtn && fromInput && toInput) {
           applyBtn.addEventListener("click", (e) => {
             e.stopPropagation();
-            const from = /** @type {HTMLInputElement} */ (fromInput).value;
-            const to = /** @type {HTMLInputElement} */ (toInput).value;
+            const from = fromInput.value;
+            const to = toInput.value;
+
 
             if (!from || !to) {
               menu.classList.add("hidden");

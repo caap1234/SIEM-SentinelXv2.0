@@ -6,11 +6,17 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
+    "check": "astro check",
     "astro": "astro"
+
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.17",
     "astro": "^5.16.2",
     "tailwindcss": "^4.1.17"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "typescript": "^5.9.3"
   }
 }

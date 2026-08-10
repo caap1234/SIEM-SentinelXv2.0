@@ -1,7 +1,7 @@
 ---
 import LandingLayout from "../../layouts/LandingLayout.astro";
-const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
 ---
+
 
 <LandingLayout>
   <main class="min-h-screen bg-[#0F1216] text-[#D6D9DD]">
@@ -119,16 +119,16 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
 
     const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
 
-    const form = document.querySelector("[data-login-form]");
-    const emailInput = document.querySelector("[data-login-email]");
-    const passwordInput = document.querySelector("[data-login-password]");
-    const btn = document.querySelector("[data-login-button]");
-    const errorLabel = document.querySelector("[data-login-error]");
-    const rememberInput = document.querySelector("[data-login-remember]");
-    const togglePwdBtn = document.querySelector("[data-toggle-password-login]");
-    const eyeIcon = togglePwdBtn?.querySelector("[data-eye-icon]");
+    const form = document.querySelector<HTMLFormElement>("[data-login-form]");
+    const emailInput = document.querySelector<HTMLInputElement>("[data-login-email]");
+    const passwordInput = document.querySelector<HTMLInputElement>("[data-login-password]");
+    const btn = document.querySelector<HTMLButtonElement>("[data-login-button]");
+    const errorLabel = document.querySelector<HTMLElement>("[data-login-error]");
+    const rememberInput = document.querySelector<HTMLInputElement>("[data-login-remember]");
+    const togglePwdBtn = document.querySelector<HTMLButtonElement>("[data-toggle-password-login]");
+    const eyeIcon = togglePwdBtn?.querySelector<HTMLImageElement>("[data-eye-icon]");
 
-    function showError(msg) {
+    function showError(msg: string) {
       if (!errorLabel) return;
       errorLabel.textContent = msg;
       errorLabel.classList.remove("hidden");
@@ -140,13 +140,14 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
       errorLabel.classList.add("hidden");
     }
 
-    function isStrongPassword(value) {
+    function isStrongPassword(value: string) {
       const lengthOK = value.length >= 12;
       const hasUpper = /[A-Z]/.test(value);
       const hasLower = /[a-z]/.test(value);
       const hasSpecial = /[^A-Za-z0-9]/.test(value);
       return lengthOK && hasUpper && hasLower && hasSpecial;
     }
+
 
     // Toggle mostrar/ocultar contraseña con SVG
     if (togglePwdBtn && passwordInput && eyeIcon) {

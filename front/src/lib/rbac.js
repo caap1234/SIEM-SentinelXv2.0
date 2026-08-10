@@ -2,7 +2,12 @@
  * SentinelX SIEM - Utilidades de Verificación de Permisos RBAC en Frontend
  */
 
-import { getAuthContext, can as authCan, hasRole as authHasRole } from "./auth.js";
+import { getAuthContext, can as authCan, hasRole as authHasRole, logout as authLogout } from "./auth.js";
+
+export function logout() {
+  authLogout();
+}
+
 
 /**
  * Verifica si el usuario autenticado posee un permiso específico.

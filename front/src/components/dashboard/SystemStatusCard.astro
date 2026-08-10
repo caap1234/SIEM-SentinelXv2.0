@@ -1,7 +1,5 @@
 ---
-const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
 ---
-
 
 <div class="rounded-xl bg-white border border-[#E5E7EB] p-6 shadow-sm flex flex-col">
   <!-- TÍTULO -->
@@ -35,14 +33,15 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
 
     const container = document.querySelector("[data-system-status]");
 
-    const COLOR_MAP = {
+    const COLOR_MAP: Record<string, string> = {
       healthy: "#22C55E", // verde
       degraded: "#F59E0B", // amarillo
       offline: "#DC2626", // rojo
       unknown: "#9CA3AF", // gris
     };
 
-    function renderStatus(healthObj) {
+    function renderStatus(healthObj: Record<string, string>) {
+
       if (!container) return;
       container.innerHTML = "";
 
