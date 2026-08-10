@@ -8,6 +8,8 @@ import os
 from typing import Any, Dict
 
 OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://localhost:9200")
+if os.path.exists("/.dockerenv") and ("localhost" in OPENSEARCH_URL or "127.0.0.1" in OPENSEARCH_URL):
+    OPENSEARCH_URL = OPENSEARCH_URL.replace("localhost", "opensearch").replace("127.0.0.1", "opensearch")
 OPENSEARCH_USER = os.getenv("OPENSEARCH_USER", "admin")
 OPENSEARCH_PASSWORD = os.getenv("OPENSEARCH_PASSWORD", "admin")
 OPENSEARCH_VERIFY_CERTS = os.getenv("OPENSEARCH_VERIFY_CERTS", "false").lower() == "true"

@@ -97,6 +97,10 @@ services:
     env_file:
       - .env
     environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-sentinelx}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-sentinelx_db}"
+      OPENSEARCH_URL: "http://opensearch:9200"
+      NATS_URL: "nats://nats:4222"
+      MINIO_ENDPOINT: "http://minio:9000"
       UPLOADED_LOGS_DIR: ${UPLOADED_LOGS_DIR:-/app/uploaded_logs}
       GEOIP_COUNTRY_DB_PATH: ${GEOIP_COUNTRY_DB_PATH:-/geoip/GeoLite2-Country.mmdb}
       GEOIP_ASN_DB_PATH: ${GEOIP_ASN_DB_PATH:-/geoip/GeoLite2-ASN.mmdb}
@@ -124,6 +128,10 @@ services:
     env_file:
       - .env
     environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-sentinelx}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-sentinelx_db}"
+      OPENSEARCH_URL: "http://opensearch:9200"
+      NATS_URL: "nats://nats:4222"
+      MINIO_ENDPOINT: "http://minio:9000"
       UPLOADED_LOGS_DIR: ${UPLOADED_LOGS_DIR:-/app/uploaded_logs}
       GEOIP_COUNTRY_DB_PATH: ${GEOIP_COUNTRY_DB_PATH:-/geoip/GeoLite2-Country.mmdb}
       GEOIP_ASN_DB_PATH: ${GEOIP_ASN_DB_PATH:-/geoip/GeoLite2-ASN.mmdb}
@@ -152,6 +160,10 @@ services:
     env_file:
       - .env
     environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-sentinelx}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-sentinelx_db}"
+      OPENSEARCH_URL: "http://opensearch:9200"
+      NATS_URL: "nats://nats:4222"
+      MINIO_ENDPOINT: "http://minio:9000"
       GEOIP_COUNTRY_DB_PATH: ${GEOIP_COUNTRY_DB_PATH:-/geoip/GeoLite2-Country.mmdb}
       GEOIP_ASN_DB_PATH: ${GEOIP_ASN_DB_PATH:-/geoip/GeoLite2-ASN.mmdb}
       RULES_RELOAD_SECONDS: "${RULES_RELOAD_SECONDS:-600}"

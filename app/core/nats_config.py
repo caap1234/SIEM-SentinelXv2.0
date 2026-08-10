@@ -9,6 +9,8 @@ from typing import Any, Dict, List
 
 # NATS Connection URL
 NATS_URL = os.getenv("NATS_URL", "nats://localhost:4222")
+if os.path.exists("/.dockerenv") and ("localhost" in NATS_URL or "127.0.0.1" in NATS_URL):
+    NATS_URL = NATS_URL.replace("localhost", "nats").replace("127.0.0.1", "nats")
 
 # Nombres de Streams
 STREAM_RAW = "SENTINELX_INGEST_RAW"

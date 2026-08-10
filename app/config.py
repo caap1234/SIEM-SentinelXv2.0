@@ -33,3 +33,10 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Autodetectar ejecución dentro de Docker y corregir localhost por nombres de servicio Docker
+import os
+if os.path.exists("/.dockerenv"):
+    if "@localhost:" in settings.DATABASE_URL or "@127.0.0.1:" in settings.DATABASE_URL:
+        settings.DATABASE_URL = settings.DATABASE_URL.replace("@localhost:", "@db:").replace("@127.0.0.1:", "@db:")
+
