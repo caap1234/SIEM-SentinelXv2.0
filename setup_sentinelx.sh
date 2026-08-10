@@ -562,16 +562,12 @@ setup_python_venv
 setup_frontend "${FRONT_DEPLOY_PATH}" "${PUBLIC_API_URL}"
 
 # ============================================================
-# PRIMERA INSTALACIÓN Y CONFIGURACIÓN INICIAL (FIRST_INSTALL)
-# ============================================================
-log_info "Ejecutando script de configuración inicial (FIRST_INSTALL)..."
-"${ROOT_DIR}/.venv/bin/python" "${ROOT_DIR}/scripts/initial_setup.py" || log_warn "Aviso en inicialización inicial. Asegúrese de que los servicios PostgreSQL/OpenSearch estén arriba."
-
-# ============================================================
 # DESPLIEGUE SEGÚN MODO
 # ============================================================
 if [[ "${DEPLOY_MODE}" == "1" ]]; then
   install_systemd_services
+  log_info "Ejecutando script de configuración inicial (FIRST_INSTALL)..."
+  "${ROOT_DIR}/.venv/bin/python" "${ROOT_DIR}/scripts/initial_setup.py" || true
   log_info "Instalación por Servicios Systemd completada con ${PARSING_WORKERS} Parsing Workers y ${ENGINE_WORKERS} Engine Workers."
 elif [[ "${DEPLOY_MODE}" == "2" ]]; then
   if has_cmd docker && docker compose version >/dev/null 2>&1; then
