@@ -447,6 +447,11 @@ if [[ "${DEPLOY_MODE}" != "3" ]]; then
   echo "Configuración de Dominio & API Backend:"
   prompt PUBLIC_API_URL "URL pública o dominio de la API Backend (ej: https://api.sentinelx.tokyo-03.com)" "${PUBLIC_API_URL}" 0 0
 
+  if [[ -n "${PUBLIC_API_URL}" && ! "${PUBLIC_API_URL}" =~ ^https?:// ]]; then
+    PUBLIC_API_URL="https://${PUBLIC_API_URL}"
+  fi
+  PUBLIC_API_URL="${PUBLIC_API_URL%/}"
+
   echo
   echo "Configuración del Frontend Web:"
   DEFAULT_PUBLIC_HTML="/home/sentinelx/public_html"

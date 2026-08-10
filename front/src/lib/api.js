@@ -4,7 +4,12 @@
 
 import { getToken, clearToken } from "./auth.js";
 
-const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
+// Asegurar que API_BASE tenga protocolo (http:// o https://) y no tenga slash final
+let rawApiBase = (import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000").trim();
+if (rawApiBase && !rawApiBase.startsWith("http://") && !rawApiBase.startsWith("https://") && !rawApiBase.startsWith("//")) {
+  rawApiBase = `https://${rawApiBase}`;
+}
+const API_BASE = rawApiBase.replace(/\/+$/, "");
 
 export class ApiError extends Error {
   constructor(message, status, data = null) {
