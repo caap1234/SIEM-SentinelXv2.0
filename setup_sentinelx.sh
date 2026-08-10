@@ -2,6 +2,7 @@
 # ============================================================
 # SentinelX SIEM — Script de Instalación y Despliegue de Producción
 # - Instalación idempotente para VPS Limpio o VPS con cPanel/WHM.
+# - Detección de Python (>= 3.9 requerida; auto-instala Python 3.11 si la distro trae 3.6).
 # - Detección automática de SO (AlmaLinux, Rocky, CentOS, RHEL, Ubuntu, Debian).
 # - Cálculo automático de Workers (Parsing & Engine) según CPU/RAM del servidor.
 # - Soporte para despliegue por Servicios Systemd o por Docker Compose.
@@ -84,6 +85,61 @@ detect_os() {
   fi
 }
 
+install_packages() {
+  local os_id; os_id="$(detect_os)"
+  log_info "Instalando paquetes requeridos en ${os_id}..."
+  if [[ "$os_id" =~ (almalinux|rocky|rhel|centos|fedora) ]]; then
+    dnf -y install "$@" 2>/dev/null || yum -y install "$@"
+  elif [[ "$os_id" =~ (debian|ubuntu) ]]; then
+    apt-get update -y
+    apt-get install -y "$@"
+  else
+    log_error "Sistema operativo no soportado automáticamente (ID=${os_id}). Instale manualmente: $*"
+  fi
+}
+
+# ---------- Búsqueda e Instalación de Python 3.9+ ----------
+find_suitable_python() {
+  for py_bin in python3.12 python3.11 python3.10 python3.9 python3; do
+    if has_cmd "$py_bin"; then
+      local ver
+      ver="$("$py_bin" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")"
+      local major="${ver%%.*}"
+      local minor="${ver#*.}"
+      if [[ "$major" -eq 3 && "$minor" -ge 9 ]]; then
+        echo "$py_bin"
+        return 0
+      fi
+    fi
+  done
+  echo ""
+}
+
+ensure_modern_python() {
+  local selected_py
+  selected_py="$(find_suitable_python)"
+
+  if [[ -z "$selected_py" ]]; then
+    log_warn "Se detectó una versión de Python antigua (< 3.9). SentinelX requiere Python 3.9 o superior."
+    if is_root; then
+      log_info "Instalando Python 3.11 en el sistema..."
+      local os_id; os_id="$(detect_os)"
+      if [[ "$os_id" =~ (almalinux|rocky|rhel|centos|fedora) ]]; then
+        install_packages python311 python311-pip python311-devel 2>/dev/null || install_packages python39 python39-pip
+      elif [[ "$os_id" =~ (debian|ubuntu) ]]; then
+        install_packages python3 python3-pip python3-venv
+      fi
+      selected_py="$(find_suitable_python)"
+    fi
+  fi
+
+  if [[ -z "$selected_py" ]]; then
+    log_error "No se encontró un ejecutable de Python >= 3.9. Por favor instale Python 3.9, 3.10 o 3.11 en su servidor."
+  fi
+
+  echo "$selected_py"
+}
+
 # ---------- Cálculo Automático de Recursos de Hardware ----------
 calculate_recommended_workers() {
   local cpus ram_mb
@@ -114,19 +170,6 @@ calculate_recommended_workers() {
   fi
 
   echo "${cpus}:${ram_mb}:${rec_parsing}:${rec_engine}"
-}
-
-install_packages() {
-  local os_id; os_id="$(detect_os)"
-  log_info "Instalando paquetes requeridos en ${os_id}..."
-  if [[ "$os_id" =~ (almalinux|rocky|rhel|centos|fedora) ]]; then
-    dnf -y install "$@"
-  elif [[ "$os_id" =~ (debian|ubuntu) ]]; then
-    apt-get update -y
-    apt-get install -y "$@"
-  else
-    log_error "Sistema operativo no soportado automáticamente (ID=${os_id}). Instale manualmente: $*"
-  fi
 }
 
 gen_secret_key() {
@@ -187,19 +230,28 @@ check_csf_firewall() {
 
 # ---------- Preparación de Entorno Python y Dependencias ----------
 setup_python_venv() {
-  log_info "Configurando entorno virtual de Python (.venv)..."
-  require_cmd python3
+  log_info "Verificando ejecutable de Python moderno (Python >= 3.9)..."
+  local py_cmd
+  py_cmd="$(ensure_modern_python)"
 
-  if ! python3 -c "import venv" >/dev/null 2>&1; then
-    if is_root; then
-      install_packages python3-venv python3-pip
-    else
-      log_error "Falta el módulo python3-venv. Instálelo o ejecute como root."
+  local py_ver
+  py_ver="$("$py_cmd" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")"
+  log_info "Usando ejecutable de Python: ${py_cmd} (Versión ${py_ver})"
+
+  # Si el entorno virtual (.venv) existía con Python antiguo (< 3.9), eliminarlo
+  if [[ -d "${ROOT_DIR}/.venv" ]]; then
+    local venv_ver
+    venv_ver="$("${ROOT_DIR}/.venv/bin/python" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "3.6")"
+    local v_minor="${venv_ver#*.}"
+    if [[ "${venv_ver%%.*}" -ne 3 || "$v_minor" -lt 9 ]]; then
+      log_warn "El entorno virtual existente (.venv) usaba Python ${venv_ver} (obsoleto). Recreando con ${py_cmd} (${py_ver})..."
+      rm -rf "${ROOT_DIR}/.venv"
     fi
   fi
 
   if [[ ! -d "${ROOT_DIR}/.venv" ]]; then
-    python3 -m venv "${ROOT_DIR}/.venv"
+    log_info "Creando entorno virtual Python (.venv) con ${py_cmd}..."
+    "$py_cmd" -m venv "${ROOT_DIR}/.venv"
   fi
 
   log_info "Actualizando pip, setuptools y wheel..."
