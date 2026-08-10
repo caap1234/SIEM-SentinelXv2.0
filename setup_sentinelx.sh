@@ -227,14 +227,33 @@ check_cpanel_and_ports() {
 # ---------- Verificación CSF Firewall ----------
 check_csf_firewall() {
   if is_linux && [[ -x /usr/sbin/csf || -x /usr/local/sbin/csf ]]; then
-    log_info "CSF Firewall detectado. Asegurando compatibilidad con Docker/Systemd..."
+    log_info "CSF Firewall detectado. Asegurando compatibilidad con Docker y apertura de puertos..."
     local conf="/etc/csf/csf.conf"
     if [[ -f "$conf" ]]; then
+      # 1. Habilitar integración con Docker
       if ! grep -qE '^DOCKER\s*=\s*"1"' "$conf"; then
-        if confirm "¿Desea habilitar DOCKER=\"1\" en CSF para evitar bloqueo de puertos? (Recomendado)" "y"; then
+        if confirm "¿Desea habilitar DOCKER=\"1\" en CSF para evitar bloqueo de puertos/redes? (Recomendado)" "y"; then
           sed -i 's/^DOCKER\s*=.*/DOCKER = "1"/' "$conf" || echo 'DOCKER = "1"' >> "$conf"
           csf -r >/dev/null 2>&1 || true
-          log_info "CSF actualizado y reiniciado."
+          log_info "CSF actualizado con DOCKER=\"1\"."
+        fi
+      fi
+
+      # 2. Verificar e incluir puertos de SentinelX en TCP_IN (8000, 4222, 9000)
+      local ports_needed=(8000 4222 9000)
+      local missing_ports=()
+      for p in "${ports_needed[@]}"; do
+        if ! grep -E '^TCP_IN\s*=' "$conf" | grep -qE "\b${p}\b"; then
+          missing_ports+=("$p")
+        fi
+      done
+
+      if [[ "${#missing_ports[@]}" -gt 0 ]]; then
+        log_info "Añadiendo puertos de SentinelX (${missing_ports[*]}) a TCP_IN en /etc/csf/csf.conf..."
+        if is_root; then
+          sed -i -E 's/^(TCP_IN\s*=\s*"[^"]*)/\1,8000,4222,9000/' "$conf" 2>/dev/null || true
+          csf -r >/dev/null 2>&1 || true
+          log_info "Puertos 8000 (API), 4222 (NATS) y 9000 (MinIO) añadidos a CSF y firewall reiniciado."
         fi
       fi
     fi
