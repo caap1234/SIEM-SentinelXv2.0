@@ -5,9 +5,9 @@
 # - Detección de Python (>= 3.9 requerida; auto-instala Python 3.11 si la distro trae 3.6).
 # - Detección automática de SO (AlmaLinux, Rocky, CentOS, RHEL, Ubuntu, Debian).
 # - Cálculo automático de Workers (Parsing & Engine) según CPU/RAM del servidor.
-# - Soporte para despliegue por Servicios Systemd o por Docker Compose.
-# - Despliegue del Frontend compilado en la ruta web personalizada (ej: /home/sentinelx/public_html).
-# - Aislamiento en /opt/sentinelx y logs en /var/log/sentinelx/install.log.
+# - Configuración interactiva de Dominio de API Backend & Reverse Proxy (Nginx).
+# - Despliegue del Frontend compilado en la ruta web personalizada (ej: /home/sentinelx/public_html)
+#   con permisos 755/644 y propietario correcto (sentinelx).
 # ============================================================
 
 set -euo pipefail
@@ -275,11 +275,58 @@ setup_python_venv() {
   fi
 }
 
-# ---------- Compilación de Frontend Astro ----------
+# ---------- Generación de Reverse Proxy Nginx para la API ----------
+generate_nginx_api_reverse_proxy() {
+  local api_url="$1"
+  local host_name
+  host_name="$(echo "$api_url" | sed -e 's|^https://||' -e 's|^http://||' -e 's|/.*||' -e 's|:.*||')"
+
+  if [[ -z "${host_name}" || "${host_name}" == "localhost" || "${host_name}" == "127.0.0.1" ]]; then
+    return 0
+  fi
+
+  log_info "Generando configuración Nginx Reverse Proxy para el dominio de API: ${host_name}..."
+  mkdir -p "${ROOT_DIR}/config"
+  cat > "${ROOT_DIR}/config/sentinelx-api.conf" <<EOF
+# SentinelX SIEM API - Configuración de Reverse Proxy Nginx
+server {
+    listen 80;
+    server_name ${host_name};
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+        proxy_send_timeout 300s;
+    }
+}
+EOF
+
+  log_info "Plantilla de Nginx creada en: ${ROOT_DIR}/config/sentinelx-api.conf"
+
+  if is_root && [[ -d /etc/nginx/conf.d ]]; then
+    cp -f "${ROOT_DIR}/config/sentinelx-api.conf" /etc/nginx/conf.d/sentinelx-api.conf 2>/dev/null || true
+    if has_cmd nginx; then
+      nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
+      log_info "Reverse Proxy Nginx activado en /etc/nginx/conf.d/sentinelx-api.conf"
+    fi
+  fi
+}
+
+# ---------- Compilación de Frontend Astro & Asignación de Permisos ----------
 setup_frontend() {
   local deploy_target="${1:-}"
+  local api_url="${2:-http://localhost:8000}"
+
   if [[ -d "${FRONT_SRC_DEFAULT}" && -f "${FRONT_SRC_DEFAULT}/package.json" ]]; then
-    log_info "Configurando y construyendo el frontend web Astro..."
+    log_info "Configurando y construyendo el frontend web Astro (PUBLIC_API_URL=${api_url})..."
     if ! has_cmd node || ! has_cmd npm; then
       if is_root; then
         install_packages nodejs npm
@@ -287,14 +334,37 @@ setup_frontend() {
         log_error "Falta Node.js/npm para compilar el frontend. Instálelo o ejecute como root."
       fi
     fi
-    (cd "${FRONT_SRC_DEFAULT}" && npm install >/dev/null && npm run build >/dev/null)
+
+    # Inyectar PUBLIC_API_URL en el build de Astro
+    (cd "${FRONT_SRC_DEFAULT}" && npm install >/dev/null && PUBLIC_API_URL="${api_url}" npm run build >/dev/null)
     log_info "Frontend compilado exitosamente en front/dist."
 
     if [[ -n "${deploy_target}" ]]; then
-      log_info "Copiando Frontend estático a la ruta de producción: ${deploy_target}..."
+      log_info "Copiando Frontend estático a la ruta web: ${deploy_target}..."
       mkdir -p "${deploy_target}"
       cp -rf "${FRONT_SRC_DEFAULT}/dist/"* "${deploy_target}/"
-      log_info "Frontend desplegado exitosamente en: ${deploy_target}"
+
+      # Determinar usuario y grupo propietario (ej: sentinelx)
+      local owner_user="sentinelx"
+      local owner_group="sentinelx"
+
+      if [[ -d "/home/sentinelx" ]]; then
+        owner_user="$(stat -c '%U' /home/sentinelx 2>/dev/null || echo sentinelx)"
+        owner_group="$(stat -c '%G' /home/sentinelx 2>/dev/null || echo sentinelx)"
+      elif [[ -d "${deploy_target}" ]]; then
+        owner_user="$(stat -c '%U' "${deploy_target}" 2>/dev/null || echo sentinelx)"
+        owner_group="$(stat -c '%G' "${deploy_target}" 2>/dev/null || echo sentinelx)"
+      fi
+
+      if is_root && id -u "${owner_user}" >/dev/null 2>&1; then
+        log_info "Asignando propietario (${owner_user}:${owner_group}) a ${deploy_target}..."
+        chown -R "${owner_user}:${owner_group}" "${deploy_target}" 2>/dev/null || true
+      fi
+
+      log_info "Estableciendo permisos 755 (directorios) y 644 (archivos) en ${deploy_target}..."
+      find "${deploy_target}" -type d -exec chmod 755 {} + 2>/dev/null || true
+      find "${deploy_target}" -type f -exec chmod 644 {} + 2>/dev/null || true
+      log_info "Frontend desplegado con permisos correctos en: ${deploy_target}"
     fi
   fi
 }
@@ -356,20 +426,28 @@ prompt DEPLOY_MODE "Elija opción (1/2/3)" "2" 0 0
 PARSING_WORKERS="${REC_PARSING}"
 ENGINE_WORKERS="${REC_ENGINE}"
 FRONT_DEPLOY_PATH=""
+PUBLIC_API_URL="https://api.sentinelx.tokyo-03.com"
 
 if [[ "${DEPLOY_MODE}" != "3" ]]; then
   echo
-  echo "Configuración de Workers de Procesamiento:"
-  echo "  (Basado en tus ${HW_CPUS} Cores / ${HW_RAM_MB} MB RAM)"
-  prompt PARSING_WORKERS "Número de Parsing Workers (Normalización & GeoIP)" "${REC_PARSING}" 0 0
-  prompt ENGINE_WORKERS "Número de Engine Workers (Motor de Correlación v2)" "${REC_ENGINE}" 0 0
+  echo "Configuración de Dominio & API Backend:"
+  prompt PUBLIC_API_URL "URL pública o dominio de la API Backend (ej: https://api.sentinelx.tokyo-03.com)" "${PUBLIC_API_URL}" 0 0
 
   echo
   echo "Configuración del Frontend Web:"
   DEFAULT_PUBLIC_HTML="/home/sentinelx/public_html"
   [[ -d "/home/sentinelx/public_html" ]] || DEFAULT_PUBLIC_HTML="/var/www/html"
   prompt FRONT_DEPLOY_PATH "Ruta donde deseas copiar los archivos del Frontend web estático" "${DEFAULT_PUBLIC_HTML}" 0 0
+
+  echo
+  echo "Configuración de Workers de Procesamiento:"
+  echo "  (Basado en tus ${HW_CPUS} Cores / ${HW_RAM_MB} MB RAM)"
+  prompt PARSING_WORKERS "Número de Parsing Workers (Normalización & GeoIP)" "${REC_PARSING}" 0 0
+  prompt ENGINE_WORKERS "Número de Engine Workers (Motor de Correlación v2)" "${REC_ENGINE}" 0 0
 fi
+
+# Generar Reverse Proxy si aplica
+generate_nginx_api_reverse_proxy "${PUBLIC_API_URL}"
 
 # ============================================================
 # CREACIÓN DE ARCHIVO .ENV
@@ -432,7 +510,7 @@ PARSING_WORKERS=${PARSING_WORKERS}
 ENGINE_WORKERS=${ENGINE_WORKERS}
 
 FRONTEND_BASE_URL=http://localhost:4321/
-PUBLIC_API_URL=http://localhost:8000
+PUBLIC_API_URL=${PUBLIC_API_URL}
 EOF
 
   chmod 600 "${ENV_FILE}"
@@ -445,7 +523,7 @@ fi
 # INSTALACIÓN DE DEPENDENCIAS Y ENTORNOS
 # ============================================================
 setup_python_venv
-setup_frontend "${FRONT_DEPLOY_PATH}"
+setup_frontend "${FRONT_DEPLOY_PATH}" "${PUBLIC_API_URL}"
 
 # ============================================================
 # PRIMERA INSTALACIÓN Y CONFIGURACIÓN INICIAL (FIRST_INSTALL)
@@ -462,7 +540,7 @@ if [[ "${DEPLOY_MODE}" == "1" ]]; then
 elif [[ "${DEPLOY_MODE}" == "2" ]]; then
   if has_cmd docker && docker compose version >/dev/null 2>&1; then
     ensure_docker_compose_file
-    log_info "Levantando stack Docker Compose (Escala calculada: parsing_worker=${PARSING_WORKERS}, engine_worker=${ENGINE_WORKERS})..."
+    log_info "Levantando stack Docker Compose (Escala calculada: parsing_worker=${PARSING_WORKERS}, engine_worker=${ENGINE_WORKERS})...."
     docker compose -f "${COMPOSE_FILE}" up -d --build \
       --scale "parsing_worker=${PARSING_WORKERS}" \
       --scale "engine_worker=${ENGINE_WORKERS}"
@@ -478,13 +556,16 @@ echo
 echo "============================================================"
 echo "      INSTALACIÓN DE SENTINELX SIEM FINALIZADA CON ÉXITO    "
 echo "============================================================"
+echo " Dominio & Rutas:"
+echo "   - API Domain:      ${PUBLIC_API_URL}"
+if [[ -n "${FRONT_DEPLOY_PATH}" ]]; then
+  echo "   - Frontend Ruta:   ${FRONT_DEPLOY_PATH}"
+fi
+echo "------------------------------------------------------------"
 echo " Recursos & Workers Escala:"
 echo "   - CPU / RAM:       ${HW_CPUS} Cores / ~${HW_RAM_MB} MB RAM"
 echo "   - Parsing Workers: ${PARSING_WORKERS}"
 echo "   - Engine Workers:  ${ENGINE_WORKERS}"
-if [[ -n "${FRONT_DEPLOY_PATH}" ]]; then
-  echo "   - Frontend Ruta:   ${FRONT_DEPLOY_PATH}"
-fi
 echo "------------------------------------------------------------"
 echo " Credenciales del Administrador Inicial:"
 echo "   - Email:    ${INITIAL_ADMIN_EMAIL:-admin@sentinelx.local}"
@@ -493,7 +574,6 @@ if [[ -n "${INITIAL_ADMIN_PASSWORD:-}" ]]; then
 fi
 echo "============================================================"
 echo " Servicios SentinelX:"
-echo "   - API Backend:  http://localhost:8000"
-echo "   - Frontend Web: http://localhost:4321"
+echo "   - API Backend:  ${PUBLIC_API_URL} -> http://localhost:8000"
 echo "   - Log de Inst.: ${INSTALL_LOG}"
 echo "============================================================"
