@@ -42,16 +42,11 @@ app = FastAPI(
     description="SentinelX SIEM Enterprise API - ECS-Normalised, NATS JetStream Ingestion, Stateless.",
 )
 
-# CORS: producción + desarrollo
-origins = [
-    "https://sentinelx.tokyo-03.com",
-    "http://127.0.0.1:4321",
-    "http://localhost:4321",
-]
-
+# CORS: soporte dinámico para cualquier origen HTTP/HTTPS en desarrollo y producción
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
+    allow_origin_regex=r"https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
