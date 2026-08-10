@@ -591,15 +591,26 @@ def get_soc_dashboard_summary(
     except Exception:
         agents_online = 0
 
-    # 2. Component Health Checks
+    # 2. Contadores dinámicos de eventos (Últimas 24h)
+    try:
+        now_24h = datetime.now(timezone.utc) - timedelta(hours=24)
+        events_received = db.query(Event).filter(Event.created_at >= now_24h).count()
+        events_processed = db.query(Event).filter(Event.engine_status == "done").count()
+        events_indexed = events_received
+    except Exception:
+        events_received = 0
+        events_processed = 0
+        events_indexed = 0
+
+    # 3. Component Health Checks
     nats_healthy = getattr(NatsService.get_instance(), "_connected", False)
     os_healthy = getattr(OpenSearchClient.get_instance(), "_connected", False)
     minio_healthy = getattr(EvidenceService.get_instance(), "s3_client", None) is not None
 
     return {
-        "events_received": 52400,
-        "events_processed": 52395,
-        "events_indexed": 52390,
+        "events_received": events_received,
+        "events_processed": events_processed,
+        "events_indexed": events_indexed,
         "alerts_active": alerts_active,
         "incidents_open": incidents_open,
         "agents_online": agents_online,
