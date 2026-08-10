@@ -12,23 +12,28 @@ type IconMap = {
   dashboard: typeof IconDashboard;
   logs: typeof IconLogs;
   incidentes: typeof IconIncidents;
-  procesos: typeof IconProcesos; // 🆕
+  procesos: typeof IconProcesos;
   events: typeof IconEvents;
   ips: typeof IconIps;
   api: typeof IconRecomendaciones;
   config: typeof IconConfig;
+  hunting?: typeof IconLogs;
+  evidence?: typeof IconLogs;
 };
 
 const iconMap: IconMap = {
   dashboard: IconDashboard,
+  hunting: IconLogs,
+  evidence: IconLogs,
   logs: IconLogs,
   incidentes: IconIncidents,
-  procesos: IconProcesos, // 🆕
+  procesos: IconProcesos,
   events: IconEvents,
   ips: IconIps,
   api: IconRecomendaciones,
   config: IconConfig,
 };
+
 
 type NavItemId = keyof IconMap;
 
@@ -41,6 +46,8 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { id: "dashboard", label: "Dashboard", href: "/dashboard", permission: "ingest.read" },
+  { id: "hunting", label: "Threat Hunting", href: "/dashboard/hunting", permission: "ingest.read" },
+  { id: "evidence", label: "Evidencia S3", href: "/dashboard/evidence", permission: "ingest.read" },
   { id: "logs", label: "Cargar Logs", href: "/dashboard/cargar-logs", permission: "configuration.manage" },
   { id: "incidentes", label: "Incidentes", href: "/dashboard/incidentes", permission: "incidents.manage" },
   { id: "ips", label: "Entidades", href: "/dashboard/entidades", permission: "alerts.read" },
@@ -49,6 +56,7 @@ const navItems: NavItem[] = [
   { id: "api", label: "API Keys", href: "/dashboard/api-keys", permission: "agents.manage" },
   { id: "config", label: "Configuración", href: "/dashboard/configuracion", permission: "configuration.manage" },
 ];
+
 
 const bottomItem = {
   label: "Cerrar Sesión",
@@ -91,7 +99,8 @@ const currentPath = normalize(Astro.url.pathname);
                 : "text-[#D6D9DD] hover:bg-[#2A3138]"
             }`}
         >
-          <Icon class="h-6 w-6 shrink-0" />
+          {Icon ? <Icon class="h-6 w-6 shrink-0" /> : null}
+
           <span>{item.label}</span>
         </a>
       );

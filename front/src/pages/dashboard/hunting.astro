@@ -1,0 +1,297 @@
+---
+import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import HeaderBar from "../../components/dashboard/HeaderBar.astro";
+---
+
+<DashboardLayout pageTitle="SentinelX SIEM – Threat Hunting (OpenSearch)">
+  <HeaderBar
+    title="Threat Hunting"
+    subtitle="Búsqueda avanzada de eventos en tiempo real sobre los Data Streams de OpenSearch."
+    showFilters={false}
+  />
+
+  <section class="flex-1 px-8 py-6 space-y-6">
+    <!-- PANEL DE BÚSQUEDA Y FILTROS KQL -->
+    <div class="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm space-y-4">
+      <div class="flex flex-col md:flex-row gap-3 items-center">
+        <div class="relative flex-1 w-full">
+          <input
+            type="text"
+            placeholder="Búsqueda libre estilo KQL / Lucene (ej. event.dataset:exim* AND source.ip:192.168.*)..."
+            class="w-full h-11 rounded-full border border-[#D1D5DB] bg-[#F9FAFB] px-5 text-[13px] text-[#111827] focus:outline-none focus:ring-2 focus:ring-[#E67E22]/70 focus:bg-white transition"
+            data-hunting-query
+          />
+        </div>
+        <button
+          type="button"
+          class="w-full md:w-auto h-11 px-6 rounded-full bg-[#E67E22] text-white text-[13px] font-medium hover:bg-[#D35400] transition flex items-center justify-center gap-2"
+          data-hunting-submit
+        >
+          🔍 Buscar Eventos
+        </button>
+      </div>
+
+      <!-- FILTROS AVANZADOS GRID -->
+      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 text-xs pt-2 border-t border-[#F3F4F6]">
+        <div>
+          <label class="block text-[10px] uppercase font-semibold text-[#6B7280] mb-1">Source IP</label>
+          <input type="text" placeholder="192.168.1.100" class="w-full h-8 rounded-lg border border-[#E5E7EB] px-2 text-[12px]" data-filter-source-ip />
+        </div>
+        <div>
+          <label class="block text-[10px] uppercase font-semibold text-[#6B7280] mb-1">Destination IP</label>
+          <input type="text" placeholder="10.0.0.1" class="w-full h-8 rounded-lg border border-[#E5E7EB] px-2 text-[12px]" data-filter-dest-ip />
+        </div>
+        <div>
+          <label class="block text-[10px] uppercase font-semibold text-[#6B7280] mb-1">Hostname</label>
+          <input type="text" placeholder="srv-cpanel-01" class="w-full h-8 rounded-lg border border-[#E5E7EB] px-2 text-[12px]" data-filter-hostname />
+        </div>
+        <div>
+          <label class="block text-[10px] uppercase font-semibold text-[#6B7280] mb-1">Usuario</label>
+          <input type="text" placeholder="admin / root" class="w-full h-8 rounded-lg border border-[#E5E7EB] px-2 text-[12px]" data-filter-user />
+        </div>
+        <div>
+          <label class="block text-[10px] uppercase font-semibold text-[#6B7280] mb-1">Dataset</label>
+          <input type="text" placeholder="exim / imunify360" class="w-full h-8 rounded-lg border border-[#E5E7EB] px-2 text-[12px]" data-filter-dataset />
+        </div>
+        <div>
+          <label class="block text-[10px] uppercase font-semibold text-[#6B7280] mb-1">Rule ID</label>
+          <input type="text" placeholder="RULE_WEB_WEBSHELL" class="w-full h-8 rounded-lg border border-[#E5E7EB] px-2 text-[12px]" data-filter-rule-id />
+        </div>
+      </div>
+    </div>
+
+    <!-- RESULTADOS SOC DE HUNTING -->
+    <div class="rounded-2xl border border-[#E5E7EB] bg-white shadow-sm overflow-hidden">
+      <div class="px-6 py-4 border-b border-[#E5E7EB] flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-[#111827]">Resultados de Threat Hunting</h2>
+          <p class="text-xs text-[#6B7280]" data-hunting-summary>Iniciando consulta a OpenSearch...</p>
+        </div>
+        <div class="text-xs text-[#9CA3AF]" data-hunting-took>0 ms</div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-xs">
+          <thead>
+            <tr class="bg-[#FAFAFB] text-[#6B7280] border-b border-[#E5E7EB]">
+              <th class="py-3 px-4 text-left">Timestamp (UTC)</th>
+              <th class="py-3 px-4 text-center">Severidad</th>
+              <th class="py-3 px-4 text-left">Dataset / Evento</th>
+              <th class="py-3 px-4 text-left">Origen -> Destino</th>
+              <th class="py-3 px-4 text-left">Host / Usuario</th>
+              <th class="py-3 px-4 text-left">Regla Asociada</th>
+              <th class="py-3 px-4 text-center">Acciones</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[#F3F4F6] text-[#374151]" data-hunting-table-body>
+            <!-- Filas dinámicas -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- PAGINACIÓN -->
+      <div class="px-6 py-3 border-t border-[#E5E7EB] flex items-center justify-between text-xs text-[#6B7280]">
+        <span data-hunting-pagination-text>Página 1</span>
+        <div class="flex gap-2">
+          <button type="button" class="px-3 py-1 rounded-lg border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB] disabled:opacity-50" data-hunting-prev>Anterior</button>
+          <button type="button" class="px-3 py-1 rounded-lg border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB] disabled:opacity-50" data-hunting-next>Siguiente</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL DETALLE EVENTO ECS -->
+    <div id="hunting-modal" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs hidden place-items-center p-4">
+      <div class="w-full max-w-4xl max-h-[90vh] bg-white rounded-2xl shadow-xl flex flex-col overflow-hidden">
+        <div class="px-6 py-4 border-b border-[#E5E7EB] flex justify-between items-center bg-[#FAFAFB]">
+          <h3 class="text-sm font-semibold text-[#111827]">Detalle ECS del Evento Normalizado</h3>
+          <button type="button" class="text-xs text-[#6B7280] hover:text-[#111827]" data-hunting-modal-close>✕ Cerrar</button>
+        </div>
+
+        <div class="p-6 space-y-4 overflow-y-auto">
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 bg-[#F9FAFB] p-3 rounded-xl border border-[#E5E7EB] text-xs">
+            <div><span class="text-[#9CA3AF] block">ID Evento:</span><strong data-modal-id>—</strong></div>
+            <div><span class="text-[#9CA3AF] block">Timestamp:</span><strong data-modal-ts>—</strong></div>
+            <div><span class="text-[#9CA3AF] block">Parser:</span><strong data-modal-parser>—</strong></div>
+            <div><span class="text-[#9CA3AF] block">Tenant:</span><strong data-modal-tenant>—</strong></div>
+          </div>
+
+          <div>
+            <h4 class="text-xs font-semibold text-[#111827] mb-1">Documento JSON Canónico ECS</h4>
+            <pre class="bg-[#111827] text-[#34D399] p-4 rounded-xl text-[11px] font-mono overflow-x-auto max-h-80" data-modal-json>—</pre>
+          </div>
+        </div>
+
+        <div class="px-6 py-3 border-t border-[#E5E7EB] flex justify-end gap-2 bg-[#FAFAFB]">
+          <button type="button" class="px-4 py-2 rounded-full border border-[#10B981] text-[12px] text-[#10B981] bg-white hover:bg-[#10B981] hover:text-white transition" data-modal-evidence-btn>
+            📦 Explorar Evidencia MinIO (S3)
+          </button>
+          <button type="button" class="px-4 py-2 rounded-full border border-[#D1D5DB] text-[12px] text-[#374151] hover:bg-[#F3F4F6]" data-hunting-modal-close>
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    // @ts-nocheck
+    import { apiGet } from "../../lib/api.js";
+
+    const LIMIT = 50;
+    let offset = 0;
+    let currentEvents = [];
+
+    // DOM Elements
+    const qInput = document.querySelector("[data-hunting-query]");
+    const submitBtn = document.querySelector("[data-hunting-submit]");
+    const tbody = document.querySelector("[data-hunting-table-body]");
+    const summaryEl = document.querySelector("[data-hunting-summary]");
+    const tookEl = document.querySelector("[data-hunting-took]");
+    const prevBtn = document.querySelector("[data-hunting-prev]");
+    const nextBtn = document.querySelector("[data-hunting-next]");
+    const pageText = document.querySelector("[data-hunting-pagination-text]");
+
+    const fSourceIp = document.querySelector("[data-filter-source-ip]");
+    const fDestIp = document.querySelector("[data-filter-dest-ip]");
+    const fHostname = document.querySelector("[data-filter-hostname]");
+    const fUser = document.querySelector("[data-filter-user]");
+    const fDataset = document.querySelector("[data-filter-dataset]");
+    const fRuleId = document.querySelector("[data-filter-rule-id]");
+
+    const modal = document.getElementById("hunting-modal");
+    const modalCloseBtns = document.querySelectorAll("[data-hunting-modal-close]");
+
+    const SEV_BADGES = {
+      critical: "bg-[#FEE2E2] text-[#991B1B]",
+      high: "bg-[#FEF3C7] text-[#92400E]",
+      medium: "bg-[#DBEAFE] text-[#1E40AF]",
+      low: "bg-[#E5E7EB] text-[#374151]",
+      info: "bg-[#F3F4F6] text-[#6B7280]",
+    };
+
+    function readUrlParams() {
+      const url = new URL(window.location.href);
+      const rId = url.searchParams.get("rule_id");
+      const ip = url.searchParams.get("ip") || url.searchParams.get("source_ip");
+      const ds = url.searchParams.get("dataset");
+
+      if (rId && fRuleId) fRuleId.value = rId;
+      if (ip && fSourceIp) fSourceIp.value = ip;
+      if (ds && fDataset) fDataset.value = ds;
+    }
+
+    async function executeSearch() {
+      if (!tbody) return;
+      tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-[#9CA3AF]">Buscando eventos en OpenSearch...</td></tr>`;
+
+      const params = {
+        limit: LIMIT,
+        offset: offset,
+      };
+
+      if (qInput?.value?.trim()) params.q = qInput.value.trim();
+      if (fSourceIp?.value?.trim()) params.source_ip = fSourceIp.value.trim();
+      if (fDestIp?.value?.trim()) params.destination_ip = fDestIp.value.trim();
+      if (fHostname?.value?.trim()) params.hostname = fHostname.value.trim();
+      if (fUser?.value?.trim()) params.username = fUser.value.trim();
+      if (fDataset?.value?.trim()) params.dataset = fDataset.value.trim();
+      if (fRuleId?.value?.trim()) params.rule_id = fRuleId.value.trim();
+
+      try {
+        const data = await apiGet("/api/v1/hunting/search", params);
+        currentEvents = data.events || [];
+        renderEvents(currentEvents, data.total || 0, data.took_ms || 0);
+      } catch (err) {
+        console.error("Error al buscar en OpenSearch:", err);
+        tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-[#DC2626]">Error al conectar con OpenSearch API.</td></tr>`;
+      }
+    }
+
+    function renderEvents(events, total, took) {
+      tbody.innerHTML = "";
+      if (summaryEl) summaryEl.textContent = `Mostrando ${events.length} de ${total} eventos encontrados`;
+      if (tookEl) tookEl.textContent = `${took} ms`;
+
+      if (events.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-[#9CA3AF]">Sin coincidencias registradas en OpenSearch.</td></tr>`;
+        return;
+      }
+
+      events.forEach((ev, idx) => {
+        const tr = document.createElement("tr");
+        tr.className = "hover:bg-[#F9FAFB] transition";
+
+        const sevKey = (ev.event?.severity || "info").toLowerCase();
+        const badgeClass = SEV_BADGES[sevKey] || SEV_BADGES.info;
+
+        const ts = ev["@timestamp"] ? new Date(ev["@timestamp"]).toISOString().replace("T", " ").slice(0, 19) : "—";
+        const dataset = ev.event?.dataset || "generic";
+        const srcIp = ev.source?.ip || "—";
+        const dstIp = ev.destination?.ip || "—";
+        const host = ev.host?.name || "—";
+        const user = ev.user?.name || "—";
+        const ruleName = ev.rule?.name || ev.rule?.id || "Sin regla";
+
+        tr.innerHTML = `
+          <td class="py-3 px-4 font-mono text-[11px]">${ts}</td>
+          <td class="py-3 px-4 text-center">
+            <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${badgeClass}">${sevKey.toUpperCase()}</span>
+          </td>
+          <td class="py-3 px-4 font-semibold text-[#111827]">${dataset}</td>
+          <td class="py-3 px-4 font-mono text-[11px]">${srcIp} -> ${dstIp}</td>
+          <td class="py-3 px-4 text-[#4B5563]">${host} (${user})</td>
+          <td class="py-3 px-4 text-[#6B7280]">${ruleName}</td>
+          <td class="py-3 px-4 text-center">
+            <button type="button" class="px-3 py-1 rounded-full bg-[#E5E7EB] text-[#111827] text-[11px] hover:bg-[#D1D5DB] transition" data-view-idx="${idx}">
+              Ver detalle
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // Bind detail buttons
+      tbody.querySelectorAll("[data-view-idx]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const index = Number(btn.getAttribute("data-view-idx"));
+          openModal(currentEvents[index]);
+        });
+      });
+    }
+
+    function openModal(ev) {
+      if (!modal || !ev) return;
+      modal.querySelector("[data-modal-id]").textContent = ev._id || "—";
+      modal.querySelector("[data-modal-ts]").textContent = ev["@timestamp"] || "—";
+      modal.querySelector("[data-modal-parser]").textContent = ev.sentinelx?.parser || "—";
+      modal.querySelector("[data-modal-tenant]").textContent = ev.tenant?.id || "—";
+      modal.querySelector("[data-modal-json]").textContent = JSON.stringify(ev, null, 2);
+
+      const s3Btn = modal.querySelector("[data-modal-evidence-btn]");
+      if (s3Btn) {
+        s3Btn.onclick = () => {
+          const key = ev.sentinelx?.evidence_key || `${ev.tenant?.id || 'default'}/2026/08/10/${ev.event?.dataset || 'logs'}/${ev._id}.raw.gz`;
+          window.location.href = `/dashboard/evidence?object_key=${encodeURIComponent(key)}`;
+        };
+      }
+
+      modal.classList.remove("hidden");
+      modal.classList.add("grid");
+    }
+
+    modalCloseBtns.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        modal.classList.add("hidden");
+        modal.classList.remove("grid");
+      });
+    });
+
+    submitBtn?.addEventListener("click", () => {
+      offset = 0;
+      executeSearch();
+    });
+
+    readUrlParams();
+    executeSearch();
+  </script>
+</DashboardLayout>

@@ -17,11 +17,14 @@ from app.routers import (
     dashboard,
     entities,
     events,
+    evidence_explorer,
+    hunting,
     incidents_v2,
     logs,
     rules_v2,
     processes
 )
+
 
 # Routers con nombre que colisiona (settings/admin_maintenance) -> import explícito de su "router"
 from app.routers.admin_maintenance import router as admin_maintenance_router
@@ -91,7 +94,10 @@ app.include_router(rules_v2.router)
 app.include_router(alerts.router)
 app.include_router(dashboard.router)
 app.include_router(dashboard.v1_dashboard_router)
+app.include_router(hunting.router)
+app.include_router(evidence_explorer.router)
 app.include_router(incidents_v2.router)
+
 
 app.include_router(entities.router)
 app.include_router(incident_rules_router)

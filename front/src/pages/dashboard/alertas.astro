@@ -413,7 +413,16 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
           </div>
         </div>
 
-        <div class="px-6 py-3 border-t border-[#E5E7EB] flex items-center justify-end gap-2">
+        <div class="px-6 py-3 border-t border-[#E5E7EB] flex items-center justify-end gap-2 flex-wrap">
+          <button
+            type="button"
+            class="inline-flex items-center px-4 py-2 rounded-full border border-[#3B82F6] text-[12px] text-[#3B82F6] bg-white
+                   hover:bg-[#3B82F6] hover:text-white transition disabled:opacity-50"
+            data-ev-go-hunting
+          >
+            🔍 Investigar eventos relacionados
+          </button>
+
           <button
             type="button"
             class="inline-flex items-center px-4 py-2 rounded-full border border-[#10B981] text-[12px] text-[#10B981] bg-white
@@ -422,6 +431,7 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
           >
             Ver Evidencia Forense MinIO (S3)
           </button>
+
 
           <button
             type="button"
@@ -1140,6 +1150,24 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
 
     const fetchS3Btn = modal?.querySelector("[data-ev-fetch-s3]");
     fetchS3Btn?.addEventListener("click", fetchS3Evidence);
+
+    const goHuntingBtn = modal?.querySelector("[data-ev-go-hunting]");
+    goHuntingBtn?.addEventListener("click", () => {
+      if (!currentModalEventId) return;
+      const ipEl = modal.querySelector("[data-ev-ip]");
+      const ruleEl = modal.querySelector("[data-ev-rule]");
+      const ip = ipEl?.textContent !== "—" ? ipEl?.textContent : "";
+      const ruleTxt = ruleEl?.textContent || "";
+      const ruleIdMatch = ruleTxt.match(/(RULE_[A-Z0-9_]+)/);
+      const ruleId = ruleIdMatch ? ruleIdMatch[1] : "";
+
+      const params = new URLSearchParams();
+      if (ruleId) params.set("rule_id", ruleId);
+      if (ip) params.set("source_ip", ip);
+
+      window.location.href = `/dashboard/hunting?${params.toString()}`;
+    });
+
 
     btnApply?.addEventListener("click", () => {
       state.server = (serverSelect instanceof HTMLSelectElement ? serverSelect.value : "") || "";
