@@ -555,6 +555,11 @@ else
   log_info "Archivo .env detectado. (Se preservará la configuración existente)."
 fi
 
+# Eliminar signos $ residuales del .env para evitar advertencias de Docker Compose
+if [[ -f "${ENV_FILE}" ]]; then
+  sed -i -E 's/\$([a-zA-Z0-9_]+)/\1/g' "${ENV_FILE}" 2>/dev/null || true
+fi
+
 # ============================================================
 # INSTALACIÓN DE DEPENDENCIAS Y ENTORNOS
 # ============================================================
