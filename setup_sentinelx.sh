@@ -182,9 +182,21 @@ PY
 gen_password() {
   python3 - <<'PY'
 import secrets, string
-alphabet = string.ascii_letters + string.digits + "!@#$%_=+-."
+alphabet = string.ascii_letters + string.digits + "!@#_=+-"
 print("".join(secrets.choice(alphabet) for _ in range(24)))
 PY
+}
+
+ensure_docker_compose_file() {
+  if [[ ! -f "${COMPOSE_FILE}" ]]; then
+    if [[ -f "${COMPOSE_EXAMPLE_FILE}" ]]; then
+      log_info "Generando ${COMPOSE_FILE} desde ${COMPOSE_EXAMPLE_FILE}..."
+      cp -f "${COMPOSE_EXAMPLE_FILE}" "${COMPOSE_FILE}"
+    elif [[ -f "${ROOT_DIR}/docker-compose.local.yml" ]]; then
+      log_info "Generando ${COMPOSE_FILE} desde docker-compose.local.yml..."
+      cp -f "${ROOT_DIR}/docker-compose.local.yml" "${COMPOSE_FILE}"
+    fi
+  fi
 }
 
 urlencode_str() {
@@ -433,8 +445,9 @@ if [[ "${DEPLOY_MODE}" == "1" ]]; then
   log_info "Instalación por Servicios Systemd completada con ${PARSING_WORKERS} Parsing Workers y ${ENGINE_WORKERS} Engine Workers."
 elif [[ "${DEPLOY_MODE}" == "2" ]]; then
   if has_cmd docker && docker compose version >/dev/null 2>&1; then
+    ensure_docker_compose_file
     log_info "Levantando stack Docker Compose (Escala calculada: parsing_worker=${PARSING_WORKERS}, engine_worker=${ENGINE_WORKERS})..."
-    docker compose up -d --build \
+    docker compose -f "${COMPOSE_FILE}" up -d --build \
       --scale "parsing_worker=${PARSING_WORKERS}" \
       --scale "engine_worker=${ENGINE_WORKERS}"
   else

@@ -25,7 +25,6 @@ from app.db import Base, SessionLocal, engine
 from app.models.user import User
 from app.core.security import get_password_hash
 from app.services.security_list_service import SecurityListService
-from scripts.migrate_lists_from_json import migrate_all_lists
 
 
 def step_1_create_database():
@@ -111,10 +110,9 @@ def step_5_seed_security_lists():
     """Pobla las listas de seguridad desde los JSON estáticos a PostgreSQL."""
     logger.info("-> Paso 5: Sembrando listas de seguridad iniciales...")
     try:
-        db = SessionLocal()
-        inserted, existed = migrate_all_lists(db)
-        db.close()
-        logger.info(f"  Listas de seguridad sembradas ({inserted} creadas, {existed} existentes).")
+        from scripts.migrate_lists_from_json import migrate
+        migrate()
+        logger.info("  Listas de seguridad sembradas.")
     except Exception as e:
         logger.error(f"  Error al sembrar listas de seguridad: {e}")
 
