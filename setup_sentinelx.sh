@@ -6,6 +6,7 @@
 # - Detección automática de SO (AlmaLinux, Rocky, CentOS, RHEL, Ubuntu, Debian).
 # - Cálculo automático de Workers (Parsing & Engine) según CPU/RAM del servidor.
 # - Soporte para despliegue por Servicios Systemd o por Docker Compose.
+# - Despliegue del Frontend compilado en la ruta web personalizada (ej: /home/sentinelx/public_html).
 # - Aislamiento en /opt/sentinelx y logs en /var/log/sentinelx/install.log.
 # ============================================================
 
@@ -276,6 +277,7 @@ setup_python_venv() {
 
 # ---------- Compilación de Frontend Astro ----------
 setup_frontend() {
+  local deploy_target="${1:-}"
   if [[ -d "${FRONT_SRC_DEFAULT}" && -f "${FRONT_SRC_DEFAULT}/package.json" ]]; then
     log_info "Configurando y construyendo el frontend web Astro..."
     if ! has_cmd node || ! has_cmd npm; then
@@ -287,6 +289,13 @@ setup_frontend() {
     fi
     (cd "${FRONT_SRC_DEFAULT}" && npm install >/dev/null && npm run build >/dev/null)
     log_info "Frontend compilado exitosamente en front/dist."
+
+    if [[ -n "${deploy_target}" ]]; then
+      log_info "Copiando Frontend estático a la ruta de producción: ${deploy_target}..."
+      mkdir -p "${deploy_target}"
+      cp -rf "${FRONT_SRC_DEFAULT}/dist/"* "${deploy_target}/"
+      log_info "Frontend desplegado exitosamente en: ${deploy_target}"
+    fi
   fi
 }
 
@@ -338,14 +347,15 @@ log_info "Recomendación calculada automáticamente: ${REC_PARSING} Parsing Work
 # ============================================================
 echo
 echo "Seleccione el Modo de Instalación:"
-echo "1) Instalación Limpia Producción (Systemd + PostgreSQL + Node + Python local)"
-echo "2) Instalación Docker Compose (Contenedores aislados)"
+echo "1) Instalación Limpia Producción (Systemd local + Nginx web)"
+echo "2) Instalación Híbrida / Docker (Backend & Microservicios en Docker + Front en ruta Web)"
 echo "3) Instalación Rápida de Prueba (FAST / Localhost)"
-prompt DEPLOY_MODE "Elija opción (1/2/3)" "1" 0 0
+prompt DEPLOY_MODE "Elija opción (1/2/3)" "2" 0 0
 
 # Configurar réplicas de workers
 PARSING_WORKERS="${REC_PARSING}"
 ENGINE_WORKERS="${REC_ENGINE}"
+FRONT_DEPLOY_PATH=""
 
 if [[ "${DEPLOY_MODE}" != "3" ]]; then
   echo
@@ -353,6 +363,12 @@ if [[ "${DEPLOY_MODE}" != "3" ]]; then
   echo "  (Basado en tus ${HW_CPUS} Cores / ${HW_RAM_MB} MB RAM)"
   prompt PARSING_WORKERS "Número de Parsing Workers (Normalización & GeoIP)" "${REC_PARSING}" 0 0
   prompt ENGINE_WORKERS "Número de Engine Workers (Motor de Correlación v2)" "${REC_ENGINE}" 0 0
+
+  echo
+  echo "Configuración del Frontend Web:"
+  DEFAULT_PUBLIC_HTML="/home/sentinelx/public_html"
+  [[ -d "/home/sentinelx/public_html" ]] || DEFAULT_PUBLIC_HTML="/var/www/html"
+  prompt FRONT_DEPLOY_PATH "Ruta donde deseas copiar los archivos del Frontend web estático" "${DEFAULT_PUBLIC_HTML}" 0 0
 fi
 
 # ============================================================
@@ -429,7 +445,7 @@ fi
 # INSTALACIÓN DE DEPENDENCIAS Y ENTORNOS
 # ============================================================
 setup_python_venv
-setup_frontend
+setup_frontend "${FRONT_DEPLOY_PATH}"
 
 # ============================================================
 # PRIMERA INSTALACIÓN Y CONFIGURACIÓN INICIAL (FIRST_INSTALL)
@@ -466,6 +482,9 @@ echo " Recursos & Workers Escala:"
 echo "   - CPU / RAM:       ${HW_CPUS} Cores / ~${HW_RAM_MB} MB RAM"
 echo "   - Parsing Workers: ${PARSING_WORKERS}"
 echo "   - Engine Workers:  ${ENGINE_WORKERS}"
+if [[ -n "${FRONT_DEPLOY_PATH}" ]]; then
+  echo "   - Frontend Ruta:   ${FRONT_DEPLOY_PATH}"
+fi
 echo "------------------------------------------------------------"
 echo " Credenciales del Administrador Inicial:"
 echo "   - Email:    ${INITIAL_ADMIN_EMAIL:-admin@sentinelx.local}"
