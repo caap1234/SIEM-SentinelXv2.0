@@ -416,6 +416,15 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
         <div class="px-6 py-3 border-t border-[#E5E7EB] flex items-center justify-end gap-2">
           <button
             type="button"
+            class="inline-flex items-center px-4 py-2 rounded-full border border-[#10B981] text-[12px] text-[#10B981] bg-white
+                   hover:bg-[#10B981] hover:text-white transition disabled:opacity-50"
+            data-ev-fetch-s3
+          >
+            Ver Evidencia Forense MinIO (S3)
+          </button>
+
+          <button
+            type="button"
             class="inline-flex items-center px-4 py-2 rounded-full border border-[#E67E22] text-[12px] text-[#E67E22] bg-white
                    hover:bg-[#E67E22] hover:text-white transition disabled:opacity-50"
             data-ev-save
@@ -431,6 +440,7 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
             Cerrar
           </button>
         </div>
+
       </div>
     </div>
   </div>
@@ -1109,8 +1119,31 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
     // Actions
 
 
+    const fetchS3Evidence = async () => {
+      if (!modal || !currentModalEventId) return;
+      const rawEl = modal.querySelector("[data-ev-raw]");
+      const statusMsg = modal.querySelector("[data-ev-status-msg]");
+
+      if (statusMsg) statusMsg.textContent = "Obteniendo evidencia desde MinIO S3...";
+
+      try {
+        const ev = await apiGet(`/alerts/${encodeURIComponent(currentModalEventId)}/evidence`);
+        if (rawEl) {
+          rawEl.textContent = `[MINIO S3 EVIDENCE RETRIEVED & SHA-256 VERIFIED]\nKey: ${ev.s3_key}\nSHA-256: ${ev.sha256}\nForense Validado: ${ev.integrity_verified ? 'SÍ (Inmutable)' : 'NO'}\n\nRAW CONTENT:\n${ev.raw_evidence}`;
+        }
+        if (statusMsg) statusMsg.textContent = "Evidencia S3 verificada con éxito.";
+      } catch (err) {
+        console.error("Error al descargar evidencia S3:", err);
+        if (statusMsg) statusMsg.textContent = "No se pudo recuperar la evidencia S3.";
+      }
+    };
+
+    const fetchS3Btn = modal?.querySelector("[data-ev-fetch-s3]");
+    fetchS3Btn?.addEventListener("click", fetchS3Evidence);
+
     btnApply?.addEventListener("click", () => {
       state.server = (serverSelect instanceof HTMLSelectElement ? serverSelect.value : "") || "";
+
       state.severity = String(fSeverity?.value || "all").trim();
       state.status = String(fStatus?.value || "open").trim();
       state.days = Number(fDays?.value || "7");

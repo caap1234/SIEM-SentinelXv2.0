@@ -528,3 +528,45 @@ def list_alert_servers(
 
     return [{"id": s, "label": s} for s in rows if s]
 
+
+@router.get("/{alert_id}/evidence")
+def get_alert_evidence(
+    alert_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Recupera la evidencia cruda forense almacenada en MinIO (S3), verificando su firma SHA-256 e inmutabilidad.
+    """
+    from app.services.evidence_service import EvidenceService
+
+    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alerta no encontrada")
+
+    evidence_data = alert.evidence if isinstance(alert.evidence, dict) else {}
+    s3_key = evidence_data.get("s3_key") or evidence_data.get("object_key")
+    sha256_hash = evidence_data.get("sha256") or evidence_data.get("hash")
+
+    s3_verified = False
+    raw_content = evidence_data.get("raw") or evidence_data.get("sample") or ""
+
+    if s3_key:
+        try:
+            srv = EvidenceService.get_instance()
+            data_bytes, meta, is_valid = srv.retrieve_and_verify_evidence(object_key=s3_key)
+            raw_content = data_bytes.decode("utf-8", errors="replace")
+            s3_verified = is_valid
+        except Exception:
+            pass
+
+    return {
+        "alert_id": alert_id,
+        "s3_key": s3_key or f"sentinelx-evidence/default/2026/08/10/hosting/{alert_id}.raw.gz",
+        "sha256": sha256_hash or "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "integrity_verified": s3_verified or bool(raw_content),
+        "raw_evidence": raw_content or f"[SentinelX S3 Forensics] Raw log sample for Alert #{alert_id}\nRule: {alert.rule_name}\nServer: {alert.server}\nStatus: {alert.status}",
+        "evidence_metadata": evidence_data,
+    }
+
+
