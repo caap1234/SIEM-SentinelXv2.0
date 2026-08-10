@@ -18,8 +18,10 @@ from app.models.incident import Incident
 from app.models.incident_entity import IncidentEntity
 from app.models.entity import Entity
 from app.models.log_upload import LogUpload
+from app.models.agent import RegisteredAgent
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
 
 
 # ----------------------------
@@ -577,12 +579,22 @@ def get_soc_dashboard_summary(
     except Exception:
         incidents_open = 0
 
+    try:
+        now_utc = datetime.now(timezone.utc)
+        agents = db.query(RegisteredAgent).filter(RegisteredAgent.tenant_id == ctx.tenant_id).all()
+        agents_online = 0
+        for ag in agents:
+            if ag.last_seen_at:
+                ls = ag.last_seen_at if ag.last_seen_at.tzinfo else ag.last_seen_at.replace(tzinfo=timezone.utc)
+                if (now_utc - ls).total_seconds() < 300:
+                    agents_online += 1
+    except Exception:
+        agents_online = 0
 
     # 2. Component Health Checks
     nats_healthy = getattr(NatsService.get_instance(), "_connected", False)
     os_healthy = getattr(OpenSearchClient.get_instance(), "_connected", False)
     minio_healthy = getattr(EvidenceService.get_instance(), "s3_client", None) is not None
-
 
     return {
         "events_received": 52400,
@@ -590,7 +602,7 @@ def get_soc_dashboard_summary(
         "events_indexed": 52390,
         "alerts_active": alerts_active,
         "incidents_open": incidents_open,
-        "agents_online": 3,
+        "agents_online": agents_online,
         "tenant_id": ctx.tenant_id,
         "system_health": {
             "api": "healthy",
@@ -613,12 +625,23 @@ def get_soc_dashboard_activity(
     series = []
     for i in range(24, 0, -1):
         t = now - timedelta(hours=i)
+        t_str = t.strftime("%H:00")
         series.append({
-            "timestamp": t.strftime("%H:00"),
+            "date": t_str,
+            "label": t_str,
+            "timestamp": t_str,
+            "bruteForce": (i * 17 + 5) % 80,
+            "bots": (i * 23 + 3) % 60,
+            "exploits": (i * 7 + 1) % 20,
+            "wpCoreErrors": (i * 3 + 2) % 15,
+            "fileAnomalies": (i * 2 + 1) % 10,
+            "mailThreats": (i * 5 + 4) % 30,
+            "panelAccess": (i * 9 + 2) % 25,
             "events": (i * 137 + 42) % 450 + 100,
             "alerts": (i * 3 + 1) % 15,
         })
     return {"tenant_id": ctx.tenant_id, "series": series}
+
 
 
 @v1_dashboard_router.get("/alerts/recent")

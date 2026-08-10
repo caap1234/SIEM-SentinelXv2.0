@@ -247,7 +247,8 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
 
   <script>
     // @ts-nocheck
-    import { apiGet, apiPut } from "../../lib/api.js";
+    import { apiGet, apiPut, apiPost } from "../../lib/api.js";
+
 
 
     const getToken = () => {
@@ -624,13 +625,35 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
         const data = await apiGet("/incidents", queryObj);
         const items = Array.isArray(data.items) ? data.items : [];
         allRows = items.map(normalizeIncident);
-        currentFilteredRows = allRows.slice();
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const targetId = urlParams.get("incident_id") || urlParams.get("id");
+        const searchVal = urlParams.get("search") || urlParams.get("q") || urlParams.get("ip");
+
+        if (searchVal) {
+          const qLower = searchVal.toLowerCase();
+          currentFilteredRows = allRows.filter((r) =>
+            r.id.toLowerCase().includes(qLower) ||
+            r.type.toLowerCase().includes(qLower) ||
+            r.entityText.toLowerCase().includes(qLower) ||
+            r.description.toLowerCase().includes(qLower) ||
+            r.server.toLowerCase().includes(qLower)
+          );
+        } else {
+          currentFilteredRows = allRows.slice();
+        }
+
         state.page = 1;
         render();
+
+        if (targetId) {
+          openDetailModal(targetId);
+        }
       } catch (err) {
         console.error("Error cargando /incidents:", err);
       }
     };
+
 
     // API
     const fetchIncidentDetail = async (id: any) => {
@@ -699,18 +722,36 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
                     ${safeText(STATUS_LABEL[a.status] || a.status)}
                   </span>
                 </div>
-                <div class="mt-1 text-[11px] text-[#6B7280]">
-                  source: ${safeText(a.source)} · event_type: ${safeText(a.event_type)} · severity: ${safeText(a.severity)}
+                <div class="mt-1 text-[11px] text-[#6B7280] flex flex-wrap gap-3 items-center">
+                  <span>source: ${safeText(a.source)} · event_type: ${safeText(a.event_type)} · severity: ${safeText(a.severity)}</span>
+                  ${a.opensearch_event_id ? `
+                    <a href="/dashboard/hunting?q=${encodeURIComponent('_id:' + a.opensearch_event_id)}" title="Buscar en Threat Hunting por Event ID: ${safeText(a.opensearch_event_id)}" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-[#E67E22] text-[11px] text-[#E67E22] bg-white hover:bg-[#E67E22] hover:text-white transition font-medium">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                      <span>OpenSearch Event (${safeText(String(a.opensearch_event_id).slice(0, 8))}…)</span>
+                    </a>
+                  ` : ''}
+                  ${a.s3_key ? `
+                    <a href="/dashboard/evidence?search=${encodeURIComponent(a.s3_key)}" title="Ver objeto en Evidencia S3: ${safeText(a.s3_key)}" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-[#10B981] text-[11px] text-[#10B981] bg-white hover:bg-[#10B981] hover:text-white transition font-medium">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v1a2 2 0 01-2 2M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+                      <span>Evidencia S3 (${safeText(String(a.s3_key).split('/').pop() || 'objeto')})</span>
+                    </a>
+                  ` : ''}
+
+
                 </div>
               </div>
             `).join("") : `
+
+
               <div class="px-4 py-3 text-[11px] text-[#6B7280]">No hay alertas relacionadas.</div>
             `}
           </div>
         </div>
       `;
 
+
       const entitiesHtml = `
+
         <div class="rounded-xl border border-[#E5E7EB] bg-white">
           <div class="px-4 py-3 border-b border-[#E5E7EB] flex items-center justify-between">
             <p class="text-xs font-semibold text-[#111827]">Entidades relacionadas</p>
@@ -735,8 +776,99 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
         </div>
       `;
 
-      if (detailBodyEl) detailBodyEl.innerHTML = contextHtml + alertsHtml + entitiesHtml;
+      const timeline = Array.isArray(d.timeline) ? d.timeline : [];
+      const notes = Array.isArray(d.notes) ? d.notes : [];
+
+
+      const timelineHtml = `
+        <div class="rounded-xl border border-[#E5E7EB] bg-white">
+          <div class="px-4 py-3 border-b border-[#E5E7EB] flex items-center justify-between bg-[#FAFAFB]">
+            <p class="text-xs font-semibold text-[#111827]">Timeline de Investigación SOC</p>
+            <p class="text-[11px] text-[#6B7280]">${timeline.length} eventos</p>
+          </div>
+          <div class="p-4 space-y-3">
+            ${timeline.length ? timeline.map((t) => `
+              <div class="flex items-start gap-3 text-[11px] border-l-2 border-[#E67E22] pl-3 py-1">
+                <div class="font-mono text-[#6B7280] shrink-0 text-[10px]">${fmtDt(t.timestamp)}</div>
+                <div class="flex-1">
+                  <div class="font-semibold text-[#111827]">${safeText(t.action)}</div>
+                  <div class="text-[#6B7280] text-[10px]">Usuario: <span class="text-[#374151] font-medium">${safeText(t.user)}</span> · Entidad: ${safeText(t.entity)}</div>
+                </div>
+              </div>
+            `).join("") : `
+              <div class="text-[11px] text-[#6B7280]">Sin historial cronológico registrado.</div>
+            `}
+          </div>
+        </div>
+      `;
+
+      const notesHtml = `
+        <div class="rounded-xl border border-[#E5E7EB] bg-white">
+          <div class="px-4 py-3 border-b border-[#E5E7EB] flex items-center justify-between bg-[#FAFAFB]">
+            <p class="text-xs font-semibold text-[#111827]">Notas de Investigación del Analista</p>
+            <p class="text-[11px] text-[#6B7280]">${notes.length} notas</p>
+          </div>
+          <div class="p-4 space-y-3">
+            <div class="space-y-2 max-h-48 overflow-y-auto">
+              ${notes.length ? notes.map((n) => `
+                <div class="p-2.5 rounded-lg bg-[#F9FAFB] border border-[#E5E7EB] text-[11px]">
+                  <div class="flex items-center justify-between text-[10px] text-[#6B7280] mb-1">
+                    <span class="font-semibold text-[#111827]">${safeText(n.user)}</span>
+                    <span class="font-mono">${fmtDt(n.timestamp)}</span>
+                  </div>
+                  <p class="text-[#374151] whitespace-pre-wrap">${safeText(n.note)}</p>
+                </div>
+              `).join("") : `
+                <p class="text-[11px] text-[#6B7280]">No hay notas adicionales del analista.</p>
+              `}
+            </div>
+
+            <div class="pt-2 border-t border-[#E5E7EB] flex gap-2">
+              <input type="text" placeholder="Escribir nota de contexto o hallazgo..." class="flex-1 h-9 px-3 rounded-lg border border-[#E5E7EB] text-xs focus:outline-none focus:border-[#E67E22]" data-note-input />
+              <button type="button" class="h-9 px-4 rounded-lg bg-[#111827] text-white text-xs font-medium hover:bg-[#1F2937] transition" data-add-note-btn data-inc-id="${d.id}">
+                Agregar Nota
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const navActionsHtml = `
+        <div class="rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-4 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-[#111827]">Acciones de Investigación:</span>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <a href="/dashboard/hunting?q=${encodeURIComponent(d.primary_entity_key)}" class="px-3 py-1.5 rounded-lg bg-[#3B82F6] text-white text-[11px] font-medium hover:bg-[#2563EB] transition flex items-center gap-1.5">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              <span>Buscar Eventos en Hunting</span>
+            </a>
+            <a href="/dashboard/evidence" class="px-3 py-1.5 rounded-lg bg-[#10B981] text-white text-[11px] font-medium hover:bg-[#059669] transition flex items-center gap-1.5">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v1a2 2 0 01-2 2M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+              <span>Explorar Evidencia en MinIO</span>
+            </a>
+          </div>
+        </div>
+      `;
+
+      if (detailBodyEl) detailBodyEl.innerHTML = navActionsHtml + contextHtml + alertsHtml + entitiesHtml + timelineHtml + notesHtml;
+
+      // Event listener para agregar notas dinámicamente
+      const addNoteBtn = detailBodyEl?.querySelector("[data-add-note-btn]");
+      const noteInput = detailBodyEl?.querySelector("[data-note-input]");
+      addNoteBtn?.addEventListener("click", async () => {
+        const text = noteInput?.value?.trim();
+        if (!text) return;
+        try {
+          await apiPost(`/incidents/${d.id}/notes`, { note: text });
+
+          openDetail(d.id);
+        } catch (err) {
+          console.error("Error agregando nota:", err);
+        }
+      });
     };
+
 
     const openDetail = async (id) => {
       activeIncidentId = String(id);

@@ -1,22 +1,42 @@
+# ============================================================
+# SentinelX-SIEM — .dockerignore
+# Exclusión de archivos para optimizar el contexto de Docker
+# ============================================================
+
+.git
+.github
+.venv/
+venv/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.Python
 .pytest_cache/
 .mypy_cache/
-ruff_cache/
-.venv/
+.ruff_cache/
+.coverage
+
 .env
-.DS_Store
+.env.*
+!.env.example
 
-# Si quieres excluir cosas no necesarias
-app/debug/
-alembic/versions/*.pyc
+node_modules/
+dist/
+.astro/
+front/node_modules/
+front/dist/
+front/.astro/
 
-# logs
 *.log
+logs/
+uploads/
+uploaded_logs/
+reports/generated/
+screenshots/
+*.db
+*.sqlite
+sentinelx_dev.db
 
-# no metas la base geoip al build si la vas a montar
-geoip/
-backups/
+.DS_Store
+.vscode/
+.idea/

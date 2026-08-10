@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>SentinelX SIEM — Reporte de Tendencias</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Helvetica, Arial, sans-serif; background-color: #F8FAFC; color: #0F172A; padding: 30px; }
+    .container { max-width: 900px; margin: 0 auto; }
+    .header { padding-bottom: 15px; border-bottom: 2px solid #F97316; margin-bottom: 25px; }
+    .brand { font-size: 22px; font-weight: bold; color: #0F172A; }
+    .brand span { color: #F97316; }
+    .section { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+    th { background: #F1F5F9; color: #64748B; padding: 8px 10px; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #E2E8F0; }
+    td { padding: 10px; border-bottom: 1px solid #E2E8F0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="brand">Sentinel<span>X</span> SIEM</div>
+      <div style="margin-top:5px;">
+        <h1 style="font-size:16px; font-weight:bold;">Reporte de Tendencias de Seguridad</h1>
+        <p style="font-size:11px; color:#64748B;">Período: {{ period_start }} — {{ period_end }} | Tenant: {{ tenant_id }}</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2 style="font-size:14px; font-weight:bold; margin-bottom:12px;">Variación de Volumen e Incidentes por Período</h2>
+      <table>
+        <thead>
+          <tr><th>Categoría</th><th>Período Actual</th><th>Período Previo</th><th>Tendencia (%)</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Volumen de Eventos Ingestados</td><td><strong>{{ total_events }}</strong></td><td>{{ prev_events }}</td><td><strong>{{ events_trend }}%</strong></td></tr>
+          <tr><td>Alertas Generadas</td><td><strong>{{ total_alerts }}</strong></td><td>{{ prev_alerts }}</td><td><strong>{{ alerts_trend }}%</strong></td></tr>
+          <tr><td>Incidentes SOC Creados</td><td><strong>{{ total_incidents }}</strong></td><td>{{ prev_incidents }}</td><td><strong>{{ incidents_trend }}%</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="text-align:center; font-size:10px; color:#64748B; margin-top:30px;">
+      Generado por SentinelX SIEM | Fecha: {{ generated_at }} | Autor: {{ created_by }}
+    </div>
+  </div>
+</body>
+</html>

@@ -100,3 +100,109 @@ def put_alert_email_setting(
     db.refresh(row)
 
     return AlertEmailSetting(**data)
+
+
+class UserPrefsSetting(BaseModel):
+    refresh_interval: str = "30s"
+    default_range: str = "24h"
+    compact_mode: bool = False
+
+
+@router.get("", response_model=UserPrefsSetting)
+def get_user_prefs_setting(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> UserPrefsSetting:
+    uid = int(getattr(current_user, "id"))
+    row = _get_user_setting(db, user_id=uid, key="user_prefs")
+    if not row or not (row.value or "").strip():
+        return UserPrefsSetting()
+    try:
+        data = json.loads(row.value)
+        if isinstance(data, dict):
+            return UserPrefsSetting(
+                refresh_interval=str(data.get("refresh_interval", "30s")),
+                default_range=str(data.get("default_range", "24h")),
+                compact_mode=bool(data.get("compact_mode", False)),
+            )
+    except Exception:
+        pass
+    return UserPrefsSetting()
+
+
+@router.put("", response_model=UserPrefsSetting)
+def put_user_prefs_setting(
+    payload: UserPrefsSetting,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> UserPrefsSetting:
+    uid = int(getattr(current_user, "id"))
+    data = {
+        "refresh_interval": payload.refresh_interval,
+        "default_range": payload.default_range,
+        "compact_mode": payload.compact_mode,
+    }
+    row = _get_user_setting(db, user_id=uid, key="user_prefs")
+    if not row:
+        row = UserSetting(user_id=uid, key="user_prefs", value=json.dumps(data))
+    else:
+        row.value = json.dumps(data)
+    row.updated_at = _utc_now()
+    db.add(row)
+    db.commit()
+    return UserPrefsSetting(**data)
+
+
+# -----------------------------
+# RETENTION POLICY ENDPOINTS
+# -----------------------------
+
+from app.services.retention_service import (
+    RetentionPolicyConfig,
+    RetentionPurgeSummary,
+    get_retention_config,
+    save_retention_config,
+    preview_retention_purge,
+    execute_retention_purge,
+)
+
+
+@router.get("/retention", response_model=RetentionPolicyConfig)
+def get_retention_policy_endpoint(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> RetentionPolicyConfig:
+    return get_retention_config(db)
+
+
+@router.put("/retention", response_model=RetentionPolicyConfig)
+def update_retention_policy_endpoint(
+    payload: RetentionPolicyConfig,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> RetentionPolicyConfig:
+    if not getattr(current_user, "is_admin", False):
+        raise HTTPException(status_code=403, detail="Admin privileges required to modify retention policy")
+    return save_retention_config(db, payload)
+
+
+@router.post("/retention/preview", response_model=RetentionPurgeSummary)
+def preview_retention_purge_endpoint(
+    payload: Optional[RetentionPolicyConfig] = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> RetentionPurgeSummary:
+    return preview_retention_purge(db, payload)
+
+
+@router.post("/retention/execute", response_model=RetentionPurgeSummary)
+def execute_retention_purge_endpoint(
+    payload: Optional[RetentionPolicyConfig] = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> RetentionPurgeSummary:
+    if not getattr(current_user, "is_admin", False):
+        raise HTTPException(status_code=403, detail="Admin privileges required to execute retention purge")
+    return execute_retention_purge(db, payload)
+
+

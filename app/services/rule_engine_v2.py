@@ -24,31 +24,9 @@ EventLike = Union[Event, Dict[str, Any]]
 
 
 # ----------------------------
-# Trust config (+ Lists)
+# Trust config (+ Lists via SecurityListService)
 # ----------------------------
-
-def _read_trust_config() -> Dict[str, Any]:
-    raw = (os.getenv("SIEM_TRUST_CONFIG_JSON") or "").strip()
-    if raw:
-        try:
-            data = json.loads(raw)
-            return data if isinstance(data, dict) else {}
-        except Exception:
-            return {}
-
-    path = (os.getenv("SIEM_TRUST_CONFIG_PATH") or "").strip()
-    if path:
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return data if isinstance(data, dict) else {}
-        except Exception:
-            return {}
-
-    return {}
-
-
-_TRUST_CFG: Dict[str, Any] = _read_trust_config()
+from app.services.security_list_service import SecurityListService
 
 
 def _as_list(v: Any) -> List[Any]:
@@ -94,10 +72,6 @@ def _ip_in_cidrs(ip: Optional[str], cidrs: List[str]) -> bool:
 
 
 def _is_non_global_ip(ip: Optional[str]) -> bool:
-    """
-    True si la IP NO es enrutable globalmente (loopback, RFC1918, link-local, reserved, etc.)
-    Esto evita falsos positivos de GEO (ej. country_code=PRV).
-    """
     if not ip:
         return False
     try:
@@ -117,44 +91,10 @@ def _is_non_global_ip(ip: Optional[str]) -> bool:
         )
 
 
-def _get_trusted_countries() -> List[str]:
-    return [str(x).strip().upper() for x in _as_list(_TRUST_CFG.get("trusted_countries")) if str(x).strip()]
-
-
-def _get_trusted_ips_global() -> List[str]:
-    return [str(x).strip() for x in _as_list(_TRUST_CFG.get("trusted_ips")) if str(x).strip()]
-
-
-def _get_trusted_server_ips(server: Optional[str]) -> List[str]:
-    if not server:
-        return []
-    servers = _TRUST_CFG.get("servers")
-    if not isinstance(servers, dict):
-        return []
-    entry = servers.get(server)
-    if not isinstance(entry, dict):
-        return []
-    ips = entry.get("server_ips")
-    return [str(x).strip() for x in _as_list(ips) if str(x).strip()]
-
-
-# ✅ NUEVO: ASN confiables (global)
-def _get_trusted_asn_numbers() -> List[int]:
-    out: List[int] = []
-    for x in _as_list(_TRUST_CFG.get("trusted_asn_numbers")):
-        try:
-            if x is None:
-                continue
-            out.append(int(str(x).strip()))
-        except Exception:
-            continue
-    return out
-
-
 def _get_event_asn_number(event: EventLike) -> Optional[int]:
     v = _get_from_event(event, "extra.asn.number")
     if v is None:
-        v = _get_from_event(event, "extra.asn_number")  # por si algún parser lo deja plano
+        v = _get_from_event(event, "extra.asn_number")
     try:
         if v is None:
             return None
@@ -164,10 +104,6 @@ def _get_event_asn_number(event: EventLike) -> Optional[int]:
 
 
 def _event_snapshot(event: Event) -> Dict[str, Any]:
-    """
-    Congela lo necesario del evento para evitar lazy-load/expired attributes
-    durante el procesamiento del engine (trabaja con dict, no ORM "vivo").
-    """
     extra = event.extra if isinstance(event.extra, dict) else {}
     return {
         "id": event.id,
@@ -181,91 +117,32 @@ def _event_snapshot(event: Event) -> Dict[str, Any]:
     }
 
 
-def _is_trusted_event(*, event: EventLike, geo_country: Optional[str]) -> bool:
-    ip_client = _get_from_event(event, "ip_client")
-    server = _get_from_event(event, "server")
-
-    if _is_non_global_ip(_as_str(ip_client).strip() or None):
-        return True
-
-    trusted_countries = _get_trusted_countries()
-    if geo_country and geo_country.upper() in trusted_countries:
-        return True
-
-    # ✅ NUEVO: Trust por ASN
-    asn_num = _get_event_asn_number(event)
-    if asn_num is not None and asn_num in _get_trusted_asn_numbers():
-        return True
-
-    if _ip_in_cidrs(_as_str(ip_client).strip() or None, _get_trusted_ips_global()):
-        return True
-
-    if _ip_in_cidrs(_as_str(ip_client).strip() or None, _get_trusted_server_ips(_as_str(server).strip() or None)):
-        return True
-
-    return False
+def _is_trusted_event_for_rule(
+    *,
+    event: EventLike,
+    geo_country: Optional[str],
+    rule_emit: Any,
+    rule_code: Optional[str] = None,
+    tenant_id: str = "global",
+    db: Optional[Session] = None,
+) -> Tuple[bool, Optional[str], Optional[str]]:
+    svc = SecurityListService.get_instance()
+    ev_dict = event if isinstance(event, dict) else _event_snapshot(event)  # type: ignore[arg-type]
+    return svc.is_trusted_event_for_rule(
+        event=ev_dict,
+        geo_country=geo_country,
+        rule_emit=rule_emit,
+        rule_code=rule_code,
+        tenant_id=tenant_id,
+        db=db,
+    )
 
 
-# ----------------------------
-# Per-rule trust overrides (emit.*)
-# ----------------------------
-
-def _get_trusted_countries_extra(rule_emit: Any) -> List[str]:
-    if not isinstance(rule_emit, dict):
-        return []
-    return [str(x).strip().upper() for x in _as_list(rule_emit.get("trusted_countries_extra")) if str(x).strip()]
-
-
-def _get_trusted_ips_extra(rule_emit: Any) -> List[str]:
-    if not isinstance(rule_emit, dict):
-        return []
-    return [str(x).strip() for x in _as_list(rule_emit.get("trusted_ips_extra")) if str(x).strip()]
-
-
-def _get_trusted_usernames_extra(rule_emit: Any) -> List[str]:
-    if not isinstance(rule_emit, dict):
-        return []
-    return [str(x).strip().lower() for x in _as_list(rule_emit.get("trusted_usernames_extra")) if str(x).strip()]
-
-
-def _is_trusted_event_for_rule(*, event: EventLike, geo_country: Optional[str], rule_emit: Any) -> bool:
-    if _is_trusted_event(event=event, geo_country=geo_country):
-        return True
-
-    if geo_country and geo_country.upper() in _get_trusted_countries_extra(rule_emit):
-        return True
-
-    ip_client = _as_str(_get_from_event(event, "ip_client")).strip() or None
-    if _ip_in_cidrs(ip_client, _get_trusted_ips_extra(rule_emit)):
-        return True
-
-    username = _as_str(_get_from_event(event, "username")).strip().lower()
-    if username and username in _get_trusted_usernames_extra(rule_emit):
-        return True
-
-    return False
-
-
-# ----------------------------
-# Lists config
-# ----------------------------
-
-def _get_lists_root() -> Dict[str, Any]:
-    lists = _TRUST_CFG.get("lists")
-    return lists if isinstance(lists, dict) else {}
-
-
-def _get_list(name: Optional[str]) -> List[str]:
+def _get_list(name: Optional[str], tenant_id: str = "global", db: Optional[Session] = None) -> List[str]:
     if not name:
         return []
-    root = _get_lists_root()
-    v = root.get(name)
-    out: List[str] = []
-    for x in _as_list(v):
-        s = _as_str(x).strip()
-        if s:
-            out.append(s)
-    return out
+    svc = SecurityListService.get_instance()
+    return svc.get_list_by_name(name, tenant_id=tenant_id, db=db)
 
 
 # ----------------------------
@@ -541,48 +418,34 @@ def _extract_path_for_window(event: EventLike) -> Optional[str]:
 
 
 def _get_or_create_rule_state_locked(db: Session, *, rule_id: int, group_key: str) -> RuleStateV2:
-    """
-    Evita deadlocks:
-      - lock del row existente (FOR UPDATE)
-      - si no existe: INSERT idempotente con ON CONFLICT DO NOTHING (requiere UNIQUE(rule_id, group_key))
-      - lock de nuevo
-
-    Importante: asume transacción activa.
-    """
     st = (
         db.query(RuleStateV2)
         .filter(RuleStateV2.rule_id == rule_id, RuleStateV2.group_key == group_key)
-        .with_for_update()
         .first()
     )
     if st:
         return st
 
     try:
-        db.execute(
-            text(
-                """
-                INSERT INTO rule_states_v2 (rule_id, group_key, last_seen_at, last_alert_at, extra)
-                VALUES (:rule_id, :group_key, NULL, NULL, '{}'::jsonb)
-                ON CONFLICT (rule_id, group_key) DO NOTHING
-                """
-            ),
-            {"rule_id": int(rule_id), "group_key": str(group_key)},
-        )
-    except IntegrityError:
-        # carrera normal: otro worker insertó primero
-        pass
+        st_new = RuleStateV2(rule_id=int(rule_id), group_key=str(group_key), extra={})
+        db.add(st_new)
+        db.flush()
+        return st_new
+    except Exception:
+        db.rollback()
 
     st2 = (
         db.query(RuleStateV2)
         .filter(RuleStateV2.rule_id == rule_id, RuleStateV2.group_key == group_key)
-        .with_for_update()
         .first()
     )
     if st2:
         return st2
 
-    raise RuntimeError(f"Unable to get or create RuleStateV2 for rule_id={rule_id} group_key={group_key}")
+    st_fallback = RuleStateV2(rule_id=int(rule_id), group_key=str(group_key), extra={})
+    db.add(st_fallback)
+    db.flush()
+    return st_fallback
 
 
 @dataclass
@@ -687,9 +550,30 @@ class RuleEngineV2:
         for rule in candidates:
             rule_emit = rule.emit or {}
             ignore_trust = bool(rule_emit.get("ignore_trust"))
+            rule_code = str(rule_emit.get("code") or rule.name or "")
+            tenant_id = str(_get_from_event(snap, "tenant_id") or _get_from_event(snap, "extra.tenant_id") or "global")
 
-            is_trusted_eff = _is_trusted_event_for_rule(event=snap, geo_country=geo_country, rule_emit=rule_emit)
+            is_trusted_eff, ignore_reason, val_matched = _is_trusted_event_for_rule(
+                event=snap,
+                geo_country=geo_country,
+                rule_emit=rule_emit,
+                rule_code=rule_code,
+                tenant_id=tenant_id,
+                db=db,
+            )
             if is_trusted_eff and not ignore_trust:
+                # Trazabilidad de evento ignorado
+                SecurityListService.get_instance().log_ignored_event(
+                    tenant_id=tenant_id,
+                    ignore_reason=ignore_reason or "trusted_event",
+                    value_matched=val_matched or ev_ip or "unknown",
+                    rule_code=rule_code,
+                    event_id=str(_get_from_event(snap, "id")),
+                    source=src,
+                    server=ev_server,
+                    ip_client=ev_ip,
+                    db=db,
+                )
                 continue
 
             if not _match_rule(snap, rule):
@@ -862,6 +746,9 @@ class RuleEngineV2:
             except Exception:
                 pass
 
+            first_ev_id = str(evidence_ids[0]) if evidence_ids else None
+            first_s3_key = str(_get_from_event(snap, "s3_key") or _get_from_event(snap, "extra.s3_key") or "") or None
+
             al = Alert(
                 rule_id=rule.id,
                 rule_name=rule.name,
@@ -870,9 +757,12 @@ class RuleEngineV2:
                 source=src,
                 event_type=et,
                 group_key=group_key,
+                opensearch_event_id=first_ev_id,
+                s3_key=first_s3_key,
                 triggered_at=ev_ts,
                 window_start=cutoff,
                 window_end=ev_ts,
+
                 metrics={
                     "count": len(dq),
                     "unique_paths": unique_paths,

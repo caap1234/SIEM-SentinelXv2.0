@@ -146,7 +146,18 @@ class ExportJobList(BaseModel):
 
 
 def _backups_dir() -> str:
-    return (os.getenv("BACKUPS_DIR") or "/app/backups").rstrip("/")
+    env = (os.getenv("BACKUPS_DIR") or "").strip()
+    if env:
+        return env.rstrip("/")
+    docker_dir = "/app/backups"
+    try:
+        os.makedirs(docker_dir, exist_ok=True)
+        return docker_dir
+    except Exception:
+        local_dir = os.path.abspath(os.path.join(os.getcwd(), "backups"))
+        os.makedirs(local_dir, exist_ok=True)
+        return local_dir
+
 
 
 def _exports_dir() -> str:
@@ -372,6 +383,9 @@ def export_zip(
     return ExportZipAccepted(job_id=job.job_id, status=job.status)
 
 
+from app.models.audit_log import AuditLog
+
+
 # -----------------------------
 # BACKUP AND WIPE DB
 # -----------------------------
@@ -389,7 +403,7 @@ class BackupWipeResult(BaseModel):
 def backup_and_wipe_db(
     payload: BackupWipePayload,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ) -> BackupWipeResult:
     backups_dir = _backups_dir()
     os.makedirs(backups_dir, exist_ok=True)
@@ -411,6 +425,14 @@ def backup_and_wipe_db(
         _cleanup_file(path)
         raise HTTPException(status_code=500, detail=f"Backup export failed: {type(e).__name__}: {e}")
 
+    # Validar que el archivo de respaldo exista y contenga datos antes de permitir la limpieza
+    if not os.path.isfile(path) or os.path.getsize(path) == 0:
+        _cleanup_file(path)
+        raise HTTPException(
+            status_code=500,
+            detail="Error crítico: El archivo de respaldo se generó vacío o no existe. Limpieza cancelada por seguridad."
+        )
+
     keep: Set[str] = {
         "alembic_version",
         "users",
@@ -422,6 +444,7 @@ def backup_and_wipe_db(
         "incident_rules",
         "incident_rule_state",
         "incident_rule_states",
+        "audit_logs",
     }
 
     insp = inspect(db.bind)
@@ -430,23 +453,158 @@ def backup_and_wipe_db(
     if not tables:
         return BackupWipeResult(backup_path=path, wiped_tables_count=0)
 
-    sql = "TRUNCATE " + ", ".join([f'"{t}"' for t in tables]) + " RESTART IDENTITY CASCADE"
-
-    lock_timeout = os.getenv("DB_WIPE_LOCK_TIMEOUT", "10s")
-    statement_timeout = os.getenv("DB_WIPE_STATEMENT_TIMEOUT", "15min")
+    is_sqlite = db.bind.dialect.name == "sqlite"
 
     try:
-        with db.begin():
+        if is_sqlite:
+            for t in tables:
+                db.execute(text(f'DELETE FROM "{t}"'))
+        else:
+            sql = "TRUNCATE " + ", ".join([f'"{t}"' for t in tables]) + " RESTART IDENTITY CASCADE"
+            lock_timeout = os.getenv("DB_WIPE_LOCK_TIMEOUT", "10s")
+            statement_timeout = os.getenv("DB_WIPE_STATEMENT_TIMEOUT", "15min")
             db.execute(text("SET LOCAL lock_timeout = :v"), {"v": lock_timeout})
             db.execute(text("SET LOCAL statement_timeout = :v"), {"v": statement_timeout})
             db.execute(text(sql))
+        
+        # Registrar auditoría
+        audit = AuditLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            action="backup_and_wipe_db",
+            resource="database",
+            details={
+                "backup_path": path,
+                "wiped_tables": tables,
+                "export_days": payload.export_days,
+            },
+        )
+        db.add(audit)
+        db.commit()
     except Exception as e:
+        db.rollback()
         raise HTTPException(
             status_code=500,
             detail=(
-                "Backup generado, pero el wipe falló. "
-                f"backup_path={path} err={type(e).__name__}: {type(e).__name__}: {e}"
+                "El respaldo fue generado exitosamente, pero el proceso de limpieza de tablas falló. "
+                f"backup_path={path}. Error: {type(e).__name__}: {e}"
             ),
         )
 
     return BackupWipeResult(backup_path=path, wiped_tables_count=int(len(tables)))
+
+
+# -----------------------------
+# FORCED PURGE DB (WITHOUT BACKUP)
+# -----------------------------
+
+class PurgeDbPayload(BaseModel):
+    dry_run: bool = Field(True, description="Si es True, sólo calcula y devuelve el conteo estimado sin eliminar registros.")
+    confirm: bool = Field(False, description="Debe ser True para confirmar la ejecución destructiva cuando dry_run=False.")
+    tenant_id: Optional[str] = None
+    categories: List[str] = Field(
+        default_factory=lambda: ["alerts", "incidents", "entities", "uploaded_logs"],
+        description="Categorías a depurar: alerts, incidents, entities, uploaded_logs, raw_logs"
+    )
+
+
+class PurgeDbResult(BaseModel):
+    dry_run: bool
+    confirmed: bool
+    summary: Dict[str, int]
+    message: str
+
+
+@router.post("/purge-db", response_model=PurgeDbResult)
+def purge_db_without_backup(
+    payload: PurgeDbPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> PurgeDbResult:
+    """
+    Endpoint de limpieza forzada destructiva sin respaldo previo.
+    Requiere permisos de administrador y confirmación explícita (confirm=true).
+    Soporta modo DRY RUN (dry_run=true) para previsualizar los registros a eliminar.
+    """
+    categories = [c.lower().strip() for c in payload.categories]
+    summary: Dict[str, int] = {}
+
+    # 1. Conteo preliminar (para Dry-Run o previo a borrado)
+    if "alerts" in categories:
+        q = text("SELECT COUNT(*) FROM alerts")
+        summary["alerts"] = int(db.execute(q).scalar() or 0)
+    if "incidents" in categories:
+        q = text("SELECT COUNT(*) FROM incidents")
+        summary["incidents"] = int(db.execute(q).scalar() or 0)
+    if "entities" in categories:
+        q = text("SELECT COUNT(*) FROM entities")
+        summary["entities"] = int(db.execute(q).scalar() or 0)
+    if "uploaded_logs" in categories:
+        base = _uploaded_logs_dir()
+        summary["uploaded_logs_files"] = _count_files_recursive(base) if os.path.isdir(base) else 0
+
+    if payload.dry_run:
+        return PurgeDbResult(
+            dry_run=True,
+            confirmed=False,
+            summary=summary,
+            message="Previsualización de limpieza generada (DRY RUN). Ningún dato ha sido eliminado."
+        )
+
+    if not payload.confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La operación es destructiva. Debe establecer 'confirm: true' para autorizar el borrado definitivo sin respaldo."
+        )
+
+    # 2. Ejecución destructiva de purga
+    purged_counts: Dict[str, int] = {}
+
+    try:
+        if "incidents" in categories:
+            purged_counts["incidents"] = summary.get("incidents", 0)
+            db.execute(text('DELETE FROM incident_alerts'))
+            db.execute(text('DELETE FROM incident_entities'))
+            db.execute(text('DELETE FROM incidents'))
+
+        if "alerts" in categories:
+            purged_counts["alerts"] = summary.get("alerts", 0)
+            db.execute(text('DELETE FROM alerts'))
+
+        if "entities" in categories:
+            purged_counts["entities"] = summary.get("entities", 0)
+            db.execute(text('DELETE FROM entity_score_events'))
+            db.execute(text('DELETE FROM entities'))
+
+        if "uploaded_logs" in categories:
+            clean_res = clean_uploaded_logs(db, current_user)
+            purged_counts["uploaded_logs_files"] = clean_res.removed_files
+
+        audit = AuditLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            action="purge_db_forced_without_backup",
+            resource="database",
+            details={
+                "categories": categories,
+                "purged_counts": purged_counts,
+                "tenant_id": payload.tenant_id,
+            },
+        )
+        db.add(audit)
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Falló la ejecución de purga forzada sin respaldo: {type(e).__name__}: {e}"
+        )
+
+    return PurgeDbResult(
+        dry_run=False,
+        confirmed=True,
+        summary=purged_counts,
+        message="Limpieza forzada ejecutada exitosamente. Se eliminaron los registros seleccionados."
+    )
+

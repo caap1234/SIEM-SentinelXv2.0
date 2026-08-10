@@ -1,20 +1,19 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import Optional
 
 
 class UserBase(BaseModel):
-    email: EmailStr
+    email: str
     full_name: Optional[str] = None
 
 
 class UserCreate(UserBase):
     password: str
-    # vendrá desde el front según el rol seleccionado
     is_admin: bool = False
 
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 
@@ -24,7 +23,7 @@ class UserInDB(UserBase):
     is_admin: bool
 
     class Config:
-        from_attributes = True  # pydantic v2
+        from_attributes = True
 
 
 class UserPublic(UserBase):

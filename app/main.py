@@ -11,6 +11,7 @@ from app.core.bootstrap_rules_v2 import seed_default_rules_v2
 from app.db import SessionLocal
 from app.routers import (
     admin_users,
+    agents,
     alerts,
     api_keys,
     auth,
@@ -20,10 +21,12 @@ from app.routers import (
     evidence_explorer,
     hunting,
     incidents_v2,
+    lists,
     logs,
     rules_v2,
     processes
 )
+
 
 
 # Routers con nombre que colisiona (settings/admin_maintenance) -> import explícito de su "router"
@@ -86,7 +89,9 @@ app.include_router(ingest_v1.router)
 app.include_router(auth.router)
 app.include_router(logs.router)
 app.include_router(api_keys.router)
+app.include_router(agents.router)
 app.include_router(settings_router)
+
 app.include_router(admin_users.router)
 app.include_router(admin_maintenance_router)
 app.include_router(events.router)
@@ -103,4 +108,9 @@ app.include_router(entities.router)
 app.include_router(incident_rules_router)
 app.include_router(processes.router)
 app.include_router(blacklistmaster_jobs_router)
+app.include_router(lists.router)
+
+from app.routers import reports
+app.include_router(reports.router, prefix="/api/v1")
+
 

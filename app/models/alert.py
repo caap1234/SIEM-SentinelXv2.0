@@ -9,7 +9,8 @@ from app.db import Base
 class Alert(Base):
     __tablename__ = "alerts"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
 
     rule_id = Column(Integer, ForeignKey("rules_v2.id", ondelete="SET NULL"), nullable=True)
     rule_name = Column(String(255), nullable=False)
@@ -20,6 +21,10 @@ class Alert(Base):
     event_type = Column(String(64), nullable=True)
 
     group_key = Column(Text, nullable=False)
+
+    opensearch_event_id = Column(String(255), nullable=True, index=True)
+    s3_key = Column(String(512), nullable=True, index=True)
+
 
     triggered_at = Column(DateTime(timezone=True), nullable=False)
     window_start = Column(DateTime(timezone=True), nullable=True)

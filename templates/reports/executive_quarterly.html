@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>SentinelX SIEM — Reporte Ejecutivo Trimestral</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Helvetica, Arial, sans-serif; background-color: #F8FAFC; color: #0F172A; padding: 30px; }
+    .container { max-width: 900px; margin: 0 auto; }
+    .header { padding-bottom: 15px; border-bottom: 2px solid #F97316; margin-bottom: 25px; }
+    .brand { font-size: 22px; font-weight: bold; color: #0F172A; }
+    .brand span { color: #F97316; }
+    .section { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+    th { background: #F1F5F9; color: #64748B; padding: 8px 10px; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #E2E8F0; }
+    td { padding: 10px; border-bottom: 1px solid #E2E8F0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="brand">Sentinel<span>X</span> SIEM</div>
+      <div style="margin-top:5px;">
+        <h1 style="font-size:16px; font-weight:bold;">Reporte Ejecutivo Trimestral</h1>
+        <p style="font-size:11px; color:#64748B;">Período: {{ period_start }} — {{ period_end }} | Tenant: {{ tenant_id }}</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2 style="font-size:14px; font-weight:bold; margin-bottom:12px;">Resumen Trimestral de Gestión de Riesgo</h2>
+      <table>
+        <thead>
+          <tr><th>Métrica Trimestral</th><th>Total Trimestre</th><th>Promedio Mensual</th><th>Estado RAG</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Eventos Ingestados</td><td><strong>{{ total_events }}</strong></td><td>{{ (total_events / 3) | round }}</td><td>Optimo</td></tr>
+          <tr><td>Alertas Generadas</td><td><strong>{{ total_alerts }}</strong></td><td>{{ (total_alerts / 3) | round }}</td><td>Bajo Control</td></tr>
+          <tr><td>Incidentes Gestionados</td><td><strong>{{ total_incidents }}</strong></td><td>{{ (total_incidents / 3) | round }}</td><td>Resueltos</td></tr>
+          <tr><td>MTTR Global</td><td><strong>{{ mttr_hours }} horas</strong></td><td>-</td><td>Cumplido SLA</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <h2 style="font-size:14px; font-weight:bold; margin-bottom:12px;">Recomendaciones Estratégicas de Seguridad</h2>
+      <ul style="padding-left:20px; font-size:12px; color:#334155;">
+        <li style="margin-bottom:6px;">Fortalecer reglas de detección en servicios expuestos SSH/WAF.</li>
+        <li style="margin-bottom:6px;">Implementar políticas de retención automática a 90 días en OpenSearch para optimización de almacenamiento.</li>
+        <li style="margin-bottom:6px;">Revisar credenciales de usuarios con score de riesgo recurrente.</li>
+      </ul>
+    </div>
+
+    <div style="text-align:center; font-size:10px; color:#64748B; margin-top:30px;">
+      Generado por SentinelX SIEM | Fecha: {{ generated_at }} | Autor: {{ created_by }}
+    </div>
+  </div>
+</body>
+</html>

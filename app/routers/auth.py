@@ -18,8 +18,10 @@ from app.core.security import (
 )
 from app.config import settings
 from app.services.email import send_password_reset_email
+from app.core.rbac import ROLE_PERMISSIONS_MAP
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
@@ -79,13 +81,31 @@ def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    user_role = "admin" if getattr(user, "is_admin", False) else "analyst"
+    tenant_id = getattr(user, "tenant_id", "default") or "default"
+    permissions = list(ROLE_PERMISSIONS_MAP.get(user_role, set()))
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": str(user.id)},
+        data={
+            "sub": str(user.id),
+            "user_id": user.id,
+            "tenant_id": tenant_id,
+            "role": user_role,
+            "permissions": permissions,
+        },
         expires_delta=access_token_expires,
     )
 
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": user.id,
+        "tenant_id": tenant_id,
+        "role": user_role,
+        "permissions": permissions,
+    }
+
 
 
 def get_current_user(

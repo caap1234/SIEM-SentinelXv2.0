@@ -1,0 +1,20 @@
+[Unit]
+Description=SentinelX SIEM - Rule Engine Worker Service
+After=network.target postgresql.service sentinelx-api.service
+Wants=sentinelx-api.service
+
+[Service]
+Type=simple
+User=sentinelx
+Group=sentinelx
+WorkingDirectory=/opt/sentinelx
+EnvironmentFile=/opt/sentinelx/.env
+ExecStart=/opt/sentinelx/.venv/bin/python -m app.services.rule_engine_v2
+Restart=always
+RestartSec=5s
+LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

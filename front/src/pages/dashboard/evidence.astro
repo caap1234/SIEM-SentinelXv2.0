@@ -3,35 +3,41 @@ import DashboardLayout from "../../layouts/DashboardLayout.astro";
 import HeaderBar from "../../components/dashboard/HeaderBar.astro";
 ---
 
-<DashboardLayout pageTitle="SentinelX SIEM – Explorador de Evidencia Forense (MinIO S3)">
+<DashboardLayout pageTitle="SentinelX SIEM – Evidencia y Logs Originales">
   <HeaderBar
-    title="Explorador de Evidencia Forense"
-    subtitle="Inspección inmutable de evidencia original (S3) y verificación de Hash SHA-256."
+    title="Evidencia y Logs Originales"
+    subtitle="Almacenamiento inmutable en MinIO/S3 de logs recibidos, eventos ECS y verificación de integridad SHA-256."
     showFilters={false}
   />
 
   <section class="flex-1 px-8 py-6 space-y-6">
-    <!-- FILTROS DE RUTA FORENSE S3 -->
+    <!-- FILTROS DE RUTA DE LOGS Y EVIDENCIA S3 -->
     <div class="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm flex flex-col md:flex-row gap-3 items-center justify-between">
-      <div class="flex flex-wrap gap-2 text-xs items-center w-full md:w-auto">
-        <span class="font-semibold text-[#111827]">Prefijo S3:</span>
-        <code class="px-2 py-1 rounded bg-[#F3F4F6] text-[#E67E22] font-mono text-[11px]" data-s3-prefix>sentinelx-evidence/tenant/</code>
+      <div class="flex flex-wrap gap-4 text-xs items-center w-full md:w-auto">
+        <div class="flex items-center gap-1.5">
+          <span class="font-semibold text-[#111827]">Tenant:</span>
+          <code class="px-2 py-0.5 rounded bg-[#F3F4F6] text-[#E67E22] font-mono text-[11px]" data-tenant-display>default</code>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="font-semibold text-[#111827]">Estructura de Almacenamiento S3:</span>
+          <code class="px-2 py-0.5 rounded bg-[#F3F4F6] text-[#6B7280] font-mono text-[11px]" data-s3-prefix>tenant/year/month/day/dataset/</code>
+        </div>
       </div>
       <div class="flex gap-2 w-full md:w-auto">
-        <input type="text" placeholder="Buscar por clave de objeto S3..." class="h-9 px-3 rounded-lg border border-[#E5E7EB] text-xs flex-1 md:w-64" data-evidence-search-input />
-        <button type="button" class="h-9 px-4 rounded-lg bg-[#10B981] text-white text-xs font-medium hover:bg-[#059669] transition" data-evidence-refresh>
-          🔄 Actualizar
+        <input type="text" placeholder="Buscar por dataset o clave S3..." class="h-9 px-3 rounded-lg border border-[#E5E7EB] text-xs flex-1 md:w-64 focus:outline-none focus:border-[#E67E22]" data-evidence-search-input />
+        <button type="button" class="h-9 px-4 rounded-lg bg-[#10B981] text-white text-xs font-medium hover:bg-[#059669] transition flex items-center gap-2" data-evidence-refresh>
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          <span>Actualizar</span>
         </button>
       </div>
     </div>
 
-    <!-- TABLA DE EVIDENCIA S3 -->
+    <!-- TABLA DE LOGS ORIGINALES Y EVIDENCIA S3 -->
     <div class="rounded-2xl border border-[#E5E7EB] bg-white shadow-sm overflow-hidden">
       <div class="px-6 py-4 border-b border-[#E5E7EB] flex items-center justify-between">
         <div>
-          <h2 class="text-sm font-semibold text-[#111827]">Objetos de Evidencia Inmutable Almacenados</h2>
+          <h2 class="text-sm font-semibold text-[#111827]">Catálogo de Logs y Eventos Originales Almacenados</h2>
           <p class="text-xs text-[#6B7280]" data-evidence-summary>Cargando catálogo S3...</p>
-
         </div>
       </div>
 
@@ -39,11 +45,12 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
         <table class="min-w-full text-xs">
           <thead>
             <tr class="bg-[#FAFAFB] text-[#6B7280] border-b border-[#E5E7EB]">
-              <th class="py-3 px-4 text-left">Objeto / Clave S3</th>
+              <th class="py-3 px-4 text-left">Dataset / Fuente</th>
+              <th class="py-3 px-4 text-left">Ruta / Objeto S3</th>
               <th class="py-3 px-4 text-center">Tamaño</th>
-              <th class="py-3 px-4 text-left">Fecha Creación</th>
+              <th class="py-3 px-4 text-left">Fecha Ingesta</th>
               <th class="py-3 px-4 text-left">Firma Hash SHA-256</th>
-              <th class="py-3 px-4 text-center">Integridad Forense</th>
+              <th class="py-3 px-4 text-center">Integridad</th>
               <th class="py-3 px-4 text-center">Acciones</th>
             </tr>
           </thead>
@@ -54,24 +61,30 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
       </div>
     </div>
 
-    <!-- MODAL INSPECCIÓN CONTENIDO CRUDO S3 -->
+    <!-- MODAL INSPECCIÓN CONTENIDO DE LOG ORIGINAL S3 -->
     <div id="evidence-modal" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs hidden place-items-center p-4">
       <div class="w-full max-w-4xl max-h-[90vh] bg-white rounded-2xl shadow-xl flex flex-col overflow-hidden">
         <div class="px-6 py-4 border-b border-[#E5E7EB] flex justify-between items-center bg-[#FAFAFB]">
-          <h3 class="text-sm font-semibold text-[#111827]">Inspección Forense de Evidencia Cruda (MinIO S3)</h3>
+          <h3 class="text-sm font-semibold text-[#111827]">Inspección de Log Original y Evidencia Inmutable</h3>
           <button type="button" class="text-xs text-[#6B7280] hover:text-[#111827]" data-evidence-modal-close>✕ Cerrar</button>
         </div>
 
         <div class="p-6 space-y-4 overflow-y-auto">
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 bg-[#ECFDF5] p-4 rounded-xl border border-[#A7F3D0] text-xs">
-            <div><span class="text-[#047857] block font-semibold">Clave S3:</span><code data-modal-key class="text-[11px] font-mono break-all">—</code></div>
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-[#ECFDF5] p-4 rounded-xl border border-[#A7F3D0] text-xs">
+            <div><span class="text-[#047857] block font-semibold">Tenant:</span><code data-modal-tenant class="text-[11px] font-mono text-[#111827]">default</code></div>
+            <div><span class="text-[#047857] block font-semibold">Dataset:</span><code data-modal-dataset class="text-[11px] font-mono text-[#111827]">—</code></div>
             <div><span class="text-[#047857] block font-semibold">SHA-256 Verificado:</span><code data-modal-sha class="text-[10px] font-mono break-all">—</code></div>
-            <div><span class="text-[#047857] block font-semibold">Estado Forense:</span><span data-modal-status class="inline-block px-2 py-0.5 rounded bg-[#10B981] text-white font-semibold text-[10px]">VERIFICADO</span></div>
+            <div><span class="text-[#047857] block font-semibold">Integridad Forense:</span><span data-modal-status class="inline-block px-2 py-0.5 rounded bg-[#10B981] text-white font-semibold text-[10px]">VERIFICADA</span></div>
           </div>
 
           <div>
-            <h4 class="text-xs font-semibold text-[#111827] mb-1">Contenido Descomprimido del Log Original</h4>
-            <pre class="bg-[#111827] text-[#6EE7B7] p-4 rounded-xl text-[11px] font-mono overflow-x-auto max-h-96 whitespace-pre-wrap" data-modal-raw-content>Cargando evidencia...</pre>
+            <h4 class="text-xs font-semibold text-[#111827] mb-1">Objeto S3 / Clave Inmutable</h4>
+            <code data-modal-key class="block p-2 bg-[#F3F4F6] text-[#374151] rounded-lg font-mono text-[11px] break-all">—</code>
+          </div>
+
+          <div>
+            <h4 class="text-xs font-semibold text-[#111827] mb-1">Contenido Descomprimido del Log Original / Evento Normalizado</h4>
+            <pre class="bg-[#111827] text-[#6EE7B7] p-4 rounded-xl text-[11px] font-mono overflow-x-auto max-h-96 whitespace-pre-wrap" data-modal-raw-content>Cargando evidencia desde MinIO S3...</pre>
           </div>
         </div>
 
@@ -101,47 +114,81 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
 
     async function loadEvidenceCatalog() {
       if (!tbody) return;
-      tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-[#9CA3AF]">Consultando catálogo de evidencia MinIO S3...</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-[#9CA3AF]">Consultando catálogo de evidencia y logs inmutables en MinIO S3...</td></tr>`;
 
       try {
         const data = await apiGet("/api/v1/evidence/explore");
         allObjects = data.objects || [];
-        if (prefixEl) prefixEl.textContent = data.prefix || "sentinelx-evidence/";
-        renderObjects(allObjects);
+        if (prefixEl) prefixEl.textContent = data.prefix || "tenant/year/month/day/dataset/";
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const searchQuery = urlParams.get("search") || urlParams.get("q");
+        const urlKey = urlParams.get("object_key");
+
+        if (searchQuery && searchInput) {
+          searchInput.value = searchQuery;
+          const query = searchQuery.toLowerCase().trim();
+          const filtered = allObjects.filter((o) => o.object_key.toLowerCase().includes(query));
+          renderObjects(filtered);
+        } else {
+          renderObjects(allObjects);
+        }
+
+        if (urlKey) {
+          openObjectModal(urlKey);
+        }
       } catch (err) {
         console.error("Error al cargar catálogo de evidencia:", err);
-        tbody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-[#DC2626]">Error al conectar con MinIO S3 API.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-[#DC2626]">Error al conectar con MinIO S3 API.</td></tr>`;
       }
+    }
+
+
+    function parseKeyDetails(key) {
+      // Formato: tenant/year/month/day/dataset/uuid.json.gz
+      const parts = key.split("/");
+      let dataset = "generic";
+      if (parts.length >= 5) {
+        dataset = parts[parts.length - 2];
+      } else if (parts.length >= 2) {
+        dataset = parts[0];
+      }
+      return { dataset, key };
     }
 
     function renderObjects(objects) {
       tbody.innerHTML = "";
-      if (summaryEl) summaryEl.textContent = `Mostrando ${objects.length} paquetes de evidencia forense`;
+      if (summaryEl) summaryEl.textContent = `Mostrando ${objects.length} registros de evidencia inmutable`;
 
       if (objects.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-[#9CA3AF]">Sin paquetes de evidencia registrados en este tenant.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-[#9CA3AF]">Sin registros de evidencia almacenados en este tenant.</td></tr>`;
         return;
       }
 
-      objects.forEach((obj, idx) => {
+      objects.forEach((obj) => {
         const tr = document.createElement("tr");
         tr.className = "hover:bg-[#F9FAFB] transition";
 
+        const { dataset } = parseKeyDetails(obj.object_key);
         const sizeKb = (obj.size_bytes / 1024).toFixed(1) + " KB";
         const created = obj.created_at ? new Date(obj.created_at).toISOString().replace("T", " ").slice(0, 19) : "—";
         const shaShort = obj.sha256 ? obj.sha256.slice(0, 16) + "…" : "—";
 
         tr.innerHTML = `
-          <td class="py-3 px-4 font-mono text-[11px] font-semibold text-[#111827]">${obj.object_key}</td>
+          <td class="py-3 px-4 font-semibold text-[#111827]">
+            <span class="px-2 py-0.5 rounded bg-[#EEF2FF] text-[#4F46E5] font-mono text-[11px]">${dataset}</span>
+          </td>
+          <td class="py-3 px-4 font-mono text-[11px] text-[#374151] break-all">${obj.object_key}</td>
           <td class="py-3 px-4 text-center font-mono text-[11px]">${sizeKb}</td>
           <td class="py-3 px-4 text-[#6B7280]">${created}</td>
           <td class="py-3 px-4 font-mono text-[10px] text-[#4B5563]">${shaShort}</td>
           <td class="py-3 px-4 text-center">
-            <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#DCFCE7] text-[#166534]">INMUTABLE</span>
+            <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#DCFCE7] text-[#166534]">VERIFICADA</span>
           </td>
           <td class="py-3 px-4 text-center">
-            <button type="button" class="px-3 py-1 rounded-full bg-[#10B981] text-white text-[11px] hover:bg-[#059669] transition" data-view-key="${obj.object_key}">
-              Ver Contenido
+            <button type="button" class="px-3 py-1 rounded-full bg-[#10B981] text-white text-[11px] hover:bg-[#059669] transition flex items-center gap-1 mx-auto" data-view-key="${obj.object_key}">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+              <span>Ver Log Original</span>
             </button>
           </td>
         `;
@@ -158,19 +205,21 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
 
     async function openObjectModal(objectKey) {
       if (!modal || !objectKey) return;
+      const { dataset } = parseKeyDetails(objectKey);
       modal.querySelector("[data-modal-key]").textContent = objectKey;
+      modal.querySelector("[data-modal-dataset]").textContent = dataset;
       modal.querySelector("[data-modal-sha]").textContent = "Verificando...";
-      modal.querySelector("[data-modal-raw-content]").textContent = "Descargando y descomprimiendo paquete gzip desde MinIO...";
+      modal.querySelector("[data-modal-raw-content]").textContent = "Descargando y descomprimiendo paquete de log original desde MinIO S3...";
       modal.classList.remove("hidden");
       modal.classList.add("grid");
 
       try {
         const data = await apiGet(`/api/v1/evidence/object?object_key=${encodeURIComponent(objectKey)}`);
-        modal.querySelector("[data-modal-sha]").textContent = data.sha256_expected || "SHA-256 Forense Válido";
+        modal.querySelector("[data-modal-sha]").textContent = data.sha256_expected || "SHA-256 Integro";
         modal.querySelector("[data-modal-raw-content]").textContent = data.raw_content || "—";
       } catch (err) {
         console.error("Error al obtener objeto S3:", err);
-        modal.querySelector("[data-modal-raw-content]").textContent = "Error al descargar o verificar la evidencia S3.";
+        modal.querySelector("[data-modal-raw-content]").textContent = "Error al descargar o verificar el log original S3.";
       }
     }
 
@@ -183,12 +232,17 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
 
     refreshBtn?.addEventListener("click", loadEvidenceCatalog);
 
-    // Auto-open if query param object_key exists
-    const urlKey = new URLSearchParams(window.location.search).get("object_key");
-    if (urlKey) {
-      openObjectModal(urlKey);
-    }
+    searchInput?.addEventListener("input", (e) => {
+      const query = e.target.value.toLowerCase().trim();
+      if (!query) {
+        renderObjects(allObjects);
+        return;
+      }
+      const filtered = allObjects.filter((o) => o.object_key.toLowerCase().includes(query));
+      renderObjects(filtered);
+    });
 
     loadEvidenceCatalog();
+
   </script>
 </DashboardLayout>

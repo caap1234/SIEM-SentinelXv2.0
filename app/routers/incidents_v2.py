@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
+
 
 from app.db import get_db
 from app.models.alert import Alert
@@ -159,8 +161,11 @@ class IncidentAlertDTO(BaseModel):
     status: str
     disposition: Optional[str] = None
     resolution_note: Optional[str] = None
+    opensearch_event_id: Optional[str] = None
+    s3_key: Optional[str] = None
     evidence: Dict[str, Any] = Field(default_factory=dict)
     metrics: Dict[str, Any] = Field(default_factory=dict)
+
 
 
 class IncidentEntityDTO(BaseModel):
@@ -204,9 +209,13 @@ class IncidentDetailResponse(BaseModel):
     alerts: List[IncidentAlertDTO] = Field(default_factory=list)
     entities: List[IncidentEntityDTO] = Field(default_factory=list)
 
+    timeline: List[Dict[str, Any]] = Field(default_factory=list)
+    notes: List[Dict[str, Any]] = Field(default_factory=list)
+
     # ✅ pendientes para la regla obligatoria
     open_alerts_count: int = 0
     open_entities_count: int = 0
+
 
 
 class IncidentStatusPatch(BaseModel):
@@ -418,9 +427,12 @@ def get_incident_detail(
                 status=_status_db_to_ui(a.status),
                 disposition=a.disposition,
                 resolution_note=a.resolution_note,
+                opensearch_event_id=getattr(a, "opensearch_event_id", None),
+                s3_key=getattr(a, "s3_key", None),
                 evidence=a.evidence if isinstance(a.evidence, dict) else {},
                 metrics=a.metrics if isinstance(a.metrics, dict) else {},
             )
+
             for a in alerts
         ],
         entities=[
@@ -436,13 +448,68 @@ def get_incident_detail(
             )
             for e in entities
         ],
+
+        timeline=_build_incident_timeline(inc, alerts, entities),
+        notes=list((inc.evidence if isinstance(inc.evidence, dict) else {}).get("notes", [])),
         open_alerts_count=int(open_alerts_count),
         open_entities_count=int(open_entities_count),
     )
 
 
+def _build_incident_timeline(inc: Incident, alerts: List[Alert], entities: List[Entity]) -> List[Dict[str, Any]]:
+    ev = inc.evidence if isinstance(inc.evidence, dict) else {}
+    custom_timeline = list(ev.get("timeline", []))
+
+    items = []
+    # 1. Creación de Incidente
+    items.append({
+        "timestamp": inc.opened_at.isoformat() if inc.opened_at else _utc_now().isoformat(),
+        "user": "sistema",
+        "action": f"Incidente {inc.code} creado automáticamente por el motor de correlación",
+        "entity": inc.primary_entity_key,
+    })
+
+    # 2. Alertas vinculadas
+    for a in alerts:
+        items.append({
+            "timestamp": a.triggered_at.isoformat() if a.triggered_at else _utc_now().isoformat(),
+            "user": "sistema",
+            "action": f"Alerta '{a.rule_name}' detectada ({a.server or 'servidor'})",
+            "entity": a.group_key or "alerta",
+        })
+
+    # 3. Entidades
+    for e in entities:
+        items.append({
+            "timestamp": e.first_seen_at.isoformat() if e.first_seen_at else _utc_now().isoformat(),
+            "user": "sistema",
+            "action": f"Entidad {e.entity_type.upper()} '{e.entity_key}' asociada al incidente",
+            "entity": e.entity_key,
+        })
+
+    # 4. Historial personalizado / acciones
+    for t in custom_timeline:
+        items.append(t)
+
+    # 5. Cierre / Resolución
+    if inc.closed_at or inc.status in ("closed", "resolved", "false_positive"):
+        ts = inc.closed_at.isoformat() if inc.closed_at else _utc_now().isoformat()
+        items.append({
+            "timestamp": ts,
+            "user": inc.resolved_by or "analista",
+            "action": f"Incidente cerrado con estado '{inc.status}'",
+            "entity": f"Incidente {inc.code}",
+        })
+
+    # Ordenar cronológicamente
+    items.sort(key=lambda x: str(x.get("timestamp", "")))
+    return items
+
+
+@router.put("/{incident_id}/status", response_model=IncidentStatusPatchResponse)
 @router.patch("/{incident_id}/status", response_model=IncidentStatusPatchResponse)
 def patch_incident_status(
+
     incident_id: int,
     payload: IncidentStatusPatch,
     cascade: bool = Query(default=False),
@@ -450,18 +517,18 @@ def patch_incident_status(
     current_user=Depends(get_current_user),
 ) -> IncidentStatusPatchResponse:
     """
-    Regla obligatoria:
-    - Si pides resolved/false_positive y hay alertas abiertas o entidades abiertas:
-        * si cascade=false -> NO cerramos incidente (queda open) y respondemos blocked=true (200)
-        * si cascade=true  -> cerramos en cascada alertas + entities, y cerramos incidente
-    - Nunca respondemos 409.
+    Actualización de Estado de Incidente:
+    - Si pides resolved/false_positive/closed y cascade=true:
+        * cambia alertas vinculadas a `closed_by_incident` (o `false_positive`)
+        * NO cierra entidades (las entidades conservan su ciclo de vida independiente)
+        * registra la acción en el Timeline del incidente
     """
     inc = db.query(Incident).filter(Incident.id == incident_id).first()
     if not inc:
         raise HTTPException(status_code=404, detail="Incident not found")
 
     now = _utc_now()
-    by = getattr(current_user, "email", None) or getattr(current_user, "full_name", None) or "system"
+    by = getattr(current_user, "email", None) or getattr(current_user, "full_name", None) or "sistema"
 
     requested_db = _status_ui_to_db(payload.status)
     requested_ui = _status_db_to_ui(requested_db)
@@ -474,7 +541,6 @@ def patch_incident_status(
 
     wants_close = requested_db in ("closed", "false_positive")
 
-    # Guardar metadatos aunque quede bloqueado (opcional)
     if payload.category:
         inc.disposition = payload.category
     if payload.disposition:
@@ -482,8 +548,7 @@ def patch_incident_status(
     if payload.resolution_note:
         inc.resolution_note = payload.resolution_note
 
-    if wants_close and (open_alerts_count > 0 or open_entities_count > 0) and not cascade:
-        # NO cerramos incidente
+    if wants_close and (open_alerts_count > 0) and not cascade:
         inc.status = "open"
         inc.updated_at = now
         db.add(inc)
@@ -497,17 +562,16 @@ def patch_incident_status(
             open_entities_count=int(open_entities_count),
             related_alert_ids=[int(x) for x in alert_ids],
             related_entity_ids=[int(x) for x in entity_ids],
-            message="Este incidente tiene alertas o entidades abiertas. Ciérralo en cascada o gestiona por separado.",
+            message="Este incidente tiene alertas pendientes. Resuélvalas o aplique resolución en cascada.",
         )
 
-    # Si no quiere cerrar, o ya no hay pendientes, o cascade=true: aplicamos
+    # Si cascade=true o ya no hay alertas abiertas
     if wants_close and cascade:
-        # cerrar alertas relacionadas (todas)
         if alert_ids:
             alerts = db.query(Alert).filter(Alert.id.in_(alert_ids)).all()
             for a in alerts:
-                # marcamos estado final del alert coherente con el incidente
-                a.status = requested_db  # closed/false_positive
+                # Alertas cambian a closed_by_incident (o false_positive)
+                a.status = "closed_by_incident" if requested_db != "false_positive" else "false_positive"
                 if payload.disposition:
                     a.disposition = payload.disposition
                 if payload.resolution_note:
@@ -516,50 +580,28 @@ def patch_incident_status(
                 a.resolved_by = by
                 db.add(a)
 
-        # cerrar entidades relacionadas (todas) usando attrs.state
-        if entity_ids:
-            ents = db.query(Entity).filter(Entity.id.in_(entity_ids)).all()
-            for e in ents:
-                _set_entity_state(e, "closed", by=by, at=now)
-                db.add(e)
+        # NOTA: Las entidades NO se cierran en cascada (mantienen ciclo de vida independiente)
+        open_alerts_count, _ = _count_open_alerts(db, alert_ids)
 
-        # recalc pendientes post-cascada
-        open_alerts_count, open_alert_ids = _count_open_alerts(db, alert_ids)
-        open_entities_count, open_entity_ids = _count_open_entities(db, entity_ids)
-
-    # Ahora sí: solo cerramos incidente si ya no hay pendientes
-    if wants_close and (open_alerts_count > 0 or open_entities_count > 0):
-        inc.status = "open"
-        inc.updated_at = now
-        db.add(inc)
-        db.commit()
-
-        return IncidentStatusPatchResponse(
-            id=int(inc.id),
-            status="open",
-            blocked=True,
-            open_alerts_count=int(open_alerts_count),
-            open_entities_count=int(open_entities_count),
-            related_alert_ids=[int(x) for x in alert_ids],
-            related_entity_ids=[int(x) for x in entity_ids],
-            message="Aún existen pendientes. El incidente permanece abierto.",
-        )
-
-    # Aplicar status final (open o closed/false_positive)
+    # Aplicar estado al incidente
     inc.status = requested_db if requested_db != "closed" else "closed"
+    inc.resolved_by = by
+    inc.resolved_at = now
+    inc.closed_at = now
     inc.updated_at = now
 
-    if wants_close:
-        inc.resolved_at = now
-        inc.resolved_by = by
-        inc.closed_at = now
-    else:
-        inc.resolved_at = None
-        inc.resolved_by = None
-        inc.closed_at = None
-
-    db.add(inc)
-    db.commit()
+    # Registrar evento en el timeline del incidente
+    ev = dict(inc.evidence) if isinstance(inc.evidence, dict) else {}
+    timeline = list(ev.get("timeline", []))
+    timeline.append({
+        "timestamp": now.isoformat(),
+        "user": by,
+        "action": f"Estado cambiado a '{requested_ui}'",
+        "entity": f"Incidente {inc.code}",
+    })
+    ev["timeline"] = timeline
+    inc.evidence = ev
+    flag_modified(inc, "evidence")
 
     return IncidentStatusPatchResponse(
         id=int(inc.id),
@@ -571,3 +613,51 @@ def patch_incident_status(
         related_entity_ids=[int(x) for x in entity_ids],
         message=None,
     )
+
+
+class IncidentNoteIn(BaseModel):
+    note: str = Field(..., min_length=1)
+
+
+@router.post("/{incident_id}/notes")
+def add_incident_note(
+    incident_id: int,
+    payload: IncidentNoteIn,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Permite a los analistas agregar notas de investigación y contexto al incidente.
+    """
+    inc = db.query(Incident).filter(Incident.id == incident_id).first()
+    if not inc:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    by = getattr(current_user, "email", None) or getattr(current_user, "full_name", None) or "analista"
+    now = _utc_now()
+
+    ev = dict(inc.evidence) if isinstance(inc.evidence, dict) else {}
+    notes = list(ev.get("notes", []))
+    notes.append({
+        "timestamp": now.isoformat(),
+        "user": by,
+        "note": payload.note,
+    })
+    ev["notes"] = notes
+
+    timeline = list(ev.get("timeline", []))
+    timeline.append({
+        "timestamp": now.isoformat(),
+        "user": by,
+        "action": f"Nota de investigación: {payload.note[:60]}...",
+        "entity": f"Incidente {inc.code}",
+    })
+    ev["timeline"] = timeline
+
+    inc.evidence = ev
+    flag_modified(inc, "evidence")
+    inc.updated_at = now
+    db.commit()
+
+    return {"status": "ok", "notes": notes}
+

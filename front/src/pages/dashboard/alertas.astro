@@ -89,10 +89,12 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
                   focus:outline-none focus:ring-2 focus:ring-[#E67E22]/70 focus:border-transparent"
             data-filter-status
           >
+            <option value="all">Todos los estados</option>
             <option value="open">Pendiente</option>
+            <option value="in_investigation">En investigación</option>
             <option value="resolved">Resuelto</option>
+            <option value="closed_by_incident">Cerrado por incidente</option>
             <option value="false_positive">Falso positivo</option>
-            <option value="all">Todos</option>
           </select>
         </div>
 
@@ -227,9 +229,11 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
                 data-bulk-status
               >
                 <option value="" selected>— Cambiar estado a —</option>
-                <option value="resolved">Resuelto</option>
-                <option value="false_positive">Falso positivo</option>
                 <option value="open">Pendiente</option>
+                <option value="in_investigation">En investigación</option>
+                <option value="resolved">Resuelto</option>
+                <option value="closed_by_incident">Cerrado por incidente</option>
+                <option value="false_positive">Falso positivo</option>
               </select>
             </div>
 
@@ -367,7 +371,9 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
                   data-ev-status-select
                 >
                   <option value="open">Pendiente</option>
+                  <option value="in_investigation">En investigación</option>
                   <option value="resolved">Resuelto</option>
+                  <option value="closed_by_incident">Cerrado por incidente</option>
                   <option value="false_positive">Falso positivo</option>
                 </select>
               </div>
@@ -416,21 +422,35 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
         <div class="px-6 py-3 border-t border-[#E5E7EB] flex items-center justify-end gap-2 flex-wrap">
           <button
             type="button"
-            class="inline-flex items-center px-4 py-2 rounded-full border border-[#3B82F6] text-[12px] text-[#3B82F6] bg-white
+            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-[#3B82F6] text-[12px] text-[#3B82F6] bg-white
                    hover:bg-[#3B82F6] hover:text-white transition disabled:opacity-50"
             data-ev-go-hunting
           >
-            🔍 Investigar eventos relacionados
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <span>Investigar eventos relacionados</span>
           </button>
+
 
           <button
             type="button"
-            class="inline-flex items-center px-4 py-2 rounded-full border border-[#10B981] text-[12px] text-[#10B981] bg-white
+            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-[#10B981] text-[12px] text-[#10B981] bg-white
                    hover:bg-[#10B981] hover:text-white transition disabled:opacity-50"
             data-ev-fetch-s3
           >
-            Ver Evidencia Forense MinIO (S3)
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v1a2 2 0 01-2 2M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+            <span>Ver Log Original en MinIO (S3)</span>
           </button>
+
+          <a
+            href="/dashboard/incidentes"
+            data-ev-go-incident
+            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-[#8B5CF6] text-[12px] text-[#8B5CF6] bg-white
+                   hover:bg-[#8B5CF6] hover:text-white transition"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+            <span>Incidente Relacionado</span>
+          </a>
+
 
 
           <button
@@ -465,14 +485,20 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
 
     const STATUS_LABEL = {
       open: "Pendiente",
+      in_investigation: "En investigación",
       resolved: "Resuelto",
+      closed: "Resuelto",
+      closed_by_incident: "Cerrada por incidente",
       false_positive: "Falso positivo",
-      all: "Todos",
+      all: "Todos los estados",
     };
 
     const STATUS_BADGE = {
       open: "bg-[#FEF3C7] text-[#92400E]",
+      in_investigation: "bg-[#E0F2FE] text-[#0369A1]",
       resolved: "bg-[#DCFCE7] text-[#166534]",
+      closed: "bg-[#DCFCE7] text-[#166534]",
+      closed_by_incident: "bg-[#FEF3C7] text-[#D97706] border border-[#FCD34D]",
       false_positive: "bg-[#E5E7EB] text-[#374151]",
     };
 
@@ -1007,11 +1033,16 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
 
     // Modal
     let currentModalEventId: string | number | null = null;
+    let currentModalOpensearchEventId: string | null = null;
+    let currentModalS3Key: string | null = null;
 
     const openEventModal = async (eventId: any) => {
       if (!modal) return;
 
       currentModalEventId = eventId;
+      currentModalOpensearchEventId = null;
+      currentModalS3Key = null;
+
 
       modal.style.display = "grid";
       modal.classList.remove("hidden");
@@ -1046,6 +1077,9 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
 
       try {
         const d = await apiGet(`/alerts/${encodeURIComponent(eventId)}`);
+        currentModalOpensearchEventId = d.opensearch_event_id || null;
+        currentModalS3Key = d.s3_key || null;
+
 
         if (tsEl) tsEl.textContent = fmtLocal(d.timestamp_utc || d.timestamp_local || d.timestamp || "—");
         if (serverEl) serverEl.textContent = d.server || "—";
@@ -1074,12 +1108,27 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
         if (dispSel instanceof HTMLSelectElement) dispSel.value = String(d.disposition || "");
         if (noteTa instanceof HTMLTextAreaElement) noteTa.value = String(d.note || "");
 
+        const goIncidentLink = modal.querySelector("[data-ev-go-incident]");
+        if (goIncidentLink instanceof HTMLAnchorElement) {
+          const incId = d.incident_id || d.incident;
+          if (incId) {
+            goIncidentLink.href = `/dashboard/incidentes?incident_id=${encodeURIComponent(incId)}`;
+          } else if (d.ip) {
+            goIncidentLink.href = `/dashboard/incidentes?search=${encodeURIComponent(d.ip)}`;
+          } else if (d.server) {
+            goIncidentLink.href = `/dashboard/incidentes?search=${encodeURIComponent(d.server)}`;
+          } else {
+            goIncidentLink.href = `/dashboard/incidentes`;
+          }
+        }
+
         if (saveBtn instanceof HTMLButtonElement) saveBtn.disabled = false;
       } catch (err) {
         console.error("Error /alerts/{id}:", err);
         if (tsEl) tsEl.textContent = "Error al cargar detalle";
       }
     };
+
 
     const closeEventModal = () => {
       if (!modal) return;
@@ -1162,10 +1211,15 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
       const ruleId = ruleIdMatch ? ruleIdMatch[1] : "";
 
       const params = new URLSearchParams();
-      if (ruleId) params.set("rule_id", ruleId);
-      if (ip) params.set("source_ip", ip);
+      if (currentModalOpensearchEventId) {
+        params.set("q", `_id:${currentModalOpensearchEventId}`);
+      } else {
+        if (ruleId) params.set("rule_id", ruleId);
+        if (ip) params.set("source_ip", ip);
+      }
 
       window.location.href = `/dashboard/hunting?${params.toString()}`;
+
     });
 
 

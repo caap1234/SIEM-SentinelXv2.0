@@ -21,18 +21,18 @@ def _require_admin(current_user: User):
 
 class UserRow(BaseModel):
     id: int
-    email: EmailStr
+    email: str
     full_name: Optional[str] = None
     is_active: bool
     is_admin: bool
 
 
 class UserCreateIn(BaseModel):
-    email: EmailStr
+    email: str
     full_name: Optional[str] = None
     password: str = Field(..., min_length=6)
-    # importante: el rol final lo decide el admin vía is_admin aquí (solo admin usa este endpoint)
     is_admin: bool = False
+
 
 
 class UserUpdateIn(BaseModel):

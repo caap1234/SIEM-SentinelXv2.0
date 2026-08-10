@@ -43,17 +43,20 @@ target_metadata = Base.metadata
 
 
 def _get_db_url() -> str:
-    # 1) docker-compose env var
     url = os.getenv("DATABASE_URL")
     if url:
         return url
-
-    # 2) fallback: alembic.ini (si lo tienes configurado ahí)
+    try:
+        from app.config import settings
+        if settings.DATABASE_URL:
+            return settings.DATABASE_URL
+    except Exception:
+        pass
     ini_url = config.get_main_option("sqlalchemy.url")
-    if ini_url:
+    if ini_url and ini_url != "driver://user:pass@localhost/dbname":
         return ini_url
+    return "postgresql://sentinelx:sentinelx_pass@127.0.0.1:5432/sentinelx_db"
 
-    raise RuntimeError("DATABASE_URL no está configurada y alembic.ini no trae sqlalchemy.url")
 
 
 def run_migrations_offline() -> None:

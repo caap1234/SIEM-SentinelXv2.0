@@ -11,6 +11,10 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
   />
 
   <section class="flex-1 px-8 py-6 space-y-6">
+    <!-- BANNER: Filtro activo desde enlace externo -->
+    <div id="hunting-filter-banner" class="hidden px-4 py-2 rounded-xl bg-[#FFF7ED] border border-[#E67E22]/30 text-[12px] text-[#92400E] flex items-center gap-2">
+      <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    </div>
     <!-- PANEL DE BÚSQUEDA Y FILTROS KQL -->
     <div class="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm space-y-4">
       <div class="flex flex-col md:flex-row gap-3 items-center">
@@ -27,8 +31,10 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
           class="w-full md:w-auto h-11 px-6 rounded-full bg-[#E67E22] text-white text-[13px] font-medium hover:bg-[#D35400] transition flex items-center justify-center gap-2"
           data-hunting-submit
         >
-          🔍 Buscar Eventos
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          <span>Buscar Eventos</span>
         </button>
+
       </div>
 
       <!-- FILTROS AVANZADOS GRID -->
@@ -122,9 +128,11 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
         </div>
 
         <div class="px-6 py-3 border-t border-[#E5E7EB] flex justify-end gap-2 bg-[#FAFAFB]">
-          <button type="button" class="px-4 py-2 rounded-full border border-[#10B981] text-[12px] text-[#10B981] bg-white hover:bg-[#10B981] hover:text-white transition" data-modal-evidence-btn>
-            📦 Explorar Evidencia MinIO (S3)
+          <button type="button" class="px-4 py-2 rounded-full border border-[#10B981] text-[12px] text-[#10B981] bg-white hover:bg-[#10B981] hover:text-white transition flex items-center gap-1.5" data-modal-evidence-btn>
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v1a2 2 0 01-2 2M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+            <span>Explorar Evidencia MinIO (S3)</span>
           </button>
+
           <button type="button" class="px-4 py-2 rounded-full border border-[#D1D5DB] text-[12px] text-[#374151] hover:bg-[#F3F4F6]" data-hunting-modal-close>
             Cerrar
           </button>
@@ -171,14 +179,25 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
 
     function readUrlParams() {
       const url = new URL(window.location.href);
+      const q = url.searchParams.get("q") || url.searchParams.get("search");
       const rId = url.searchParams.get("rule_id");
       const ip = url.searchParams.get("ip") || url.searchParams.get("source_ip");
       const ds = url.searchParams.get("dataset");
 
+      if (q && qInput) {
+        qInput.value = q;
+        // Mostrar banner cuando se llega desde un enlace de incidente/alerta
+        const banner = document.getElementById("hunting-filter-banner");
+        if (banner) {
+          banner.textContent = `Filtro activo desde enlace: ${q}`;
+          banner.classList.remove("hidden");
+        }
+      }
       if (rId && fRuleId) fRuleId.value = rId;
       if (ip && fSourceIp) fSourceIp.value = ip;
       if (ds && fDataset) fDataset.value = ds;
     }
+
 
     async function executeSearch() {
       if (!tbody) return;
@@ -221,8 +240,17 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
         const tr = document.createElement("tr");
         tr.className = "hover:bg-[#F9FAFB] transition";
 
-        const sevKey = (ev.event?.severity || "info").toLowerCase();
+        let sevKey = "info";
+        const rawSev = ev.event?.severity ?? ev.severity;
+        if (typeof rawSev === "number") {
+          sevKey = rawSev >= 3 ? "high" : rawSev >= 2 ? "medium" : "info";
+        } else if (typeof rawSev === "string") {
+          sevKey = rawSev.toLowerCase();
+        } else if (rawSev && typeof rawSev === "object" && rawSev.name) {
+          sevKey = String(rawSev.name).toLowerCase();
+        }
         const badgeClass = SEV_BADGES[sevKey] || SEV_BADGES.info;
+
 
         const ts = ev["@timestamp"] ? new Date(ev["@timestamp"]).toISOString().replace("T", " ").slice(0, 19) : "—";
         const dataset = ev.event?.dataset || "generic";
@@ -289,6 +317,13 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
     submitBtn?.addEventListener("click", () => {
       offset = 0;
       executeSearch();
+    });
+
+    qInput?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        offset = 0;
+        executeSearch();
+      }
     });
 
     readUrlParams();

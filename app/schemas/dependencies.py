@@ -48,7 +48,6 @@ def get_current_auth_context(
     Resuelve el contexto de autenticación y fuerza el aislamiento estricto de tenant.
     El cliente NUNCA puede suplantar arbitrariamente el tenant_id.
     """
-    # 1. Autenticación por JWT (Usuarios del Panel Dashboard)
     if token:
         payload = decode_access_token(token)
         if payload is not None:
@@ -56,7 +55,13 @@ def get_current_auth_context(
             if user_id:
                 user = db.query(User).filter(User.id == int(user_id)).first()
                 if user and getattr(user, "is_active", True):
-                    user_role = getattr(user, "role", ROLE_ADMIN) if getattr(user, "role", None) else ROLE_ADMIN
+                    if hasattr(user, "role") and getattr(user, "role", None):
+                        user_role = user.role
+                    elif getattr(user, "is_admin", False):
+                        user_role = ROLE_ADMIN
+                    else:
+                        user_role = ROLE_ANALYST
+
                     tenant = getattr(user, "tenant_id", "default") or "default"
                     return AuthContext(
                         user_id=user.id,
@@ -65,6 +70,7 @@ def get_current_auth_context(
                         role=user_role,
                         auth_type="jwt",
                     )
+
 
     # 2. Autenticación por X-API-Key de Agente Linux
     if x_api_key:

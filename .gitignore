@@ -1,106 +1,39 @@
-manteinance/
-# =========================
-# Python / FastAPI
-# =========================
-__pycache__/
-*.py[cod]
-*.pyo
+# ============================================================
+# SentinelX-SIEM — .gitignore
+# Reglas completas para evitar comitear datos sensibles o temporales.
+# ============================================================
 
-# =========================
-# Virtualenv (NO subir)
-# =========================
-.venv/
-venv/
-
-# =========================
-# ENV (SÍ subir)
-# =========================
-# ⚠️ Se recomienda ignorar estos archivos de credenciales localmente
+# ---------- Entorno y Credenciales ----------
 .env
 .env.*
 !.env.example
 .envrc
 agent/sentinelx-agent.env
 
-# =========================
-# Testing / tooling
-# =========================
+# ---------- Python / Virtualenv ----------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+
+# ---------- Bases de datos SQLite y Temporales ----------
+*.db
+*.sqlite
+*.sqlite3
+sentinelx_dev.db
+
+# ---------- Testing y Cobertura ----------
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
 htmlcov/
+coverage.xml
 
-# =========================
-# Runtime / SIEM data (NO subir)
-# =========================
-*.log
-logs/
-tmp/
-uploads/
-uploaded_logs/
-raw_logs/
-spool/
-states/
-
-# =========================
-# Comprimidos runtime (NO subir)
-# =========================
-*.gz
-*.tgz
-
-# ZIP solo si son artefactos runtime
-*.zip
-!*.example.zip
-
-# =========================
-# Alembic
-# =========================
-alembic/versions/*.pyc
-alembic/versions/__pycache__/
-
-# ✅ alembic/versions/*.py SÍ se suben
-
-# =========================
-# PostgreSQL / Backups (NO subir)
-# =========================
-backups/
-*.sql
-*.sql.gz
-*.dump
-*.bak
-*.backup
-
-# =========================
-# PostgreSQL init scripts (SÍ subir)
-# =========================
-!postgres/
-!postgres/**
-
-# =========================
-# GeoIP (SÍ subir TODO)
-# =========================
-# ⚠️ Se versionan .mmdb por respaldo
-# geoip/*.mmdb
-# geoip/*.mmdb.*
-
-!geoip/
-!geoip/**
-
-# =========================
-# Docker (SÍ subir)
-# =========================
-# ⚠️ IGNORAR docker-compose reales ya que son autogenerados
-docker-compose.yml
-docker-compose.override.yml
-nginx-local.conf
-
-# Example también
-!docker-compose.example.yml
-
-# =========================
-# Frontend (Astro / Node)
-# =========================
+# ---------- Frontend (Node / Astro) ----------
 node_modules/
 dist/
 .astro/
@@ -109,35 +42,54 @@ dist/
 .vercel/
 .netlify/
 .output/
-
 front/node_modules/
 front/dist/
 front/.astro/
 front/.cache/
-front/.turbo/
-front/.vercel/
-front/.netlify/
 front/.output/
 
-frontend/node_modules/
-frontend/dist/
-frontend/.astro/
-frontend/.cache/
+# ---------- Logs y Datos de Ejecución ----------
+*.log
+logs/
+/var/log/sentinelx/
+uploads/
+uploaded_logs/
+raw_logs/
+spool/
+states/
+reports/generated/
+/tmp/
 
-# Frontend logs (NO subir)
-front/*.log
-frontend/*.log
+# ---------- Backups y Dumps SQL ----------
+backups/
+*.sql
+*.sql.gz
+*.dump
+*.bak
+*.backup
 
-# =========================
-# Editor / OS
-# =========================
+# ---------- Comprimidos e Imágenes de Prueba ----------
+*.gz
+*.tgz
+*.zip
+!*.example.zip
+screenshots/
+*.png
+*.jpg
+*.jpeg
+
+# ---------- Alembic ----------
+alembic/versions/*.pyc
+alembic/versions/__pycache__/
+
+# ---------- Docker autogenerado ----------
+docker-compose.yml
+docker-compose.override.yml
+!docker-compose.example.yml
+
+# ---------- IDE y Sistema Operativo ----------
 .DS_Store
 .idea/
 .vscode/
 *.swp
-
-# =========================
-# Deploy artefacts (NO subir)
-# =========================
-public_html/
-
+*.swo

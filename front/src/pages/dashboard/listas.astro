@@ -1,0 +1,547 @@
+---
+import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import HeaderBar from "../../components/dashboard/HeaderBar.astro";
+---
+
+<DashboardLayout pageTitle="SentinelX SIEM – Listas de Seguridad">
+  <HeaderBar
+    title="Listas de Seguridad y Confianza"
+    subtitle="Administración centralizada de Whitelists, Blacklists, Excepciones por regla y Listas de Referencia."
+    showFilters={false}
+  />
+
+  <section class="flex-1 px-8 py-6 space-y-6">
+
+    <!-- 1. BARRA SUPERIOR DE ACCIONES PRINCIPALES -->
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-5 rounded-2xl border border-[#E5E7EB] shadow-xs">
+      <div>
+        <h2 class="text-sm font-bold text-[#111827] tracking-tight">Catálogo Dinámico de Seguridad</h2>
+        <p class="text-xs text-[#6B7280]">Gestión en tiempo real con persistencia en PostgreSQL y caché en memoria.</p>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2.5">
+        <button type="button" class="px-4 py-2 rounded-xl bg-[#10B981] text-white text-xs font-semibold hover:bg-[#059669] transition flex items-center gap-1.5 shadow-xs" data-action-add>
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          <span>Nueva Entrada</span>
+        </button>
+        <button type="button" class="px-3.5 py-2 rounded-xl border border-[#D1D5DB] bg-white text-[#374151] text-xs font-medium hover:bg-[#F9FAFB] transition flex items-center gap-1.5 shadow-xs" data-action-import>
+          <svg class="w-4 h-4 text-[#6B7280]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+          <span>Importar JSON</span>
+        </button>
+        <button type="button" class="px-3.5 py-2 rounded-xl border border-[#D1D5DB] bg-white text-[#374151] text-xs font-medium hover:bg-[#F9FAFB] transition flex items-center gap-1.5 shadow-xs" data-action-export>
+          <svg class="w-4 h-4 text-[#6B7280]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          <span>Exportar JSON</span>
+        </button>
+        <button type="button" class="px-3.5 py-2 rounded-xl border border-[#E67E22] text-[#E67E22] bg-white text-xs font-semibold hover:bg-[#FFF7ED] transition flex items-center gap-1.5 shadow-xs" data-action-refresh-cache title="Forzar recarga de caché en memoria">
+          <svg class="w-4 h-4 text-[#E67E22]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          <span>Refrescar Caché</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 2. NAVEGACIÓN POR PESTAÑAS Y GRUPOS DE LISTAS -->
+    <div class="bg-white p-2.5 rounded-2xl border border-[#E5E7EB] shadow-xs overflow-x-auto">
+      <div class="flex items-center gap-1.5 min-w-max" data-module-tabs>
+        <button type="button" class="px-4 py-2 rounded-xl text-xs font-semibold bg-[#E67E22] text-white shadow-xs transition" data-tab="all">Todas las Entradas</button>
+        <button type="button" class="px-4 py-2 rounded-xl text-xs font-medium text-[#4B5563] hover:bg-[#F3F4F6] transition" data-tab="whitelist">Whitelist (Global / Tenant)</button>
+        <button type="button" class="px-4 py-2 rounded-xl text-xs font-medium text-[#4B5563] hover:bg-[#F3F4F6] transition" data-tab="exception">Excepciones por Regla</button>
+        <button type="button" class="px-4 py-2 rounded-xl text-xs font-medium text-[#4B5563] hover:bg-[#F3F4F6] transition" data-tab="blacklistmaster">Blacklist Master</button>
+        <button type="button" class="px-4 py-2 rounded-xl text-xs font-medium text-[#4B5563] hover:bg-[#F3F4F6] transition" data-tab="reference">Listas de Referencia</button>
+        <button type="button" class="px-4 py-2 rounded-xl text-xs font-medium text-[#4B5563] hover:bg-[#F3F4F6] transition" data-tab="audit">Auditoría & Trazabilidad</button>
+      </div>
+    </div>
+
+    <!-- 3. BUSCADOR Y FILTROS DE TABLA -->
+    <div id="entries-filter-bar" class="bg-white p-4 rounded-2xl border border-[#E5E7EB] shadow-xs flex flex-col md:flex-row gap-3 items-center">
+      <div class="relative flex-1 w-full">
+        <svg class="w-4 h-4 text-[#9CA3AF] absolute left-3.5 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        <input
+          type="text"
+          placeholder="Buscar por IP, CIDR, ASN, país, token, motivo o regla..."
+          class="w-full h-10 rounded-xl border border-[#D1D5DB] bg-[#F9FAFB] pl-10 pr-4 text-xs text-[#111827] focus:outline-none focus:ring-2 focus:ring-[#E67E22]/70 focus:bg-white transition"
+          data-filter-search
+        />
+      </div>
+      <div class="flex gap-2.5 w-full md:w-auto text-xs">
+        <select class="h-10 rounded-xl border border-[#D1D5DB] bg-[#F9FAFB] px-3.5 text-xs text-[#374151] focus:outline-none focus:ring-2 focus:ring-[#E67E22]/70" data-filter-type>
+          <option value="">Todos los tipos</option>
+          <option value="whitelist_ip">Whitelist IP</option>
+          <option value="whitelist_cidr">Whitelist CIDR</option>
+          <option value="trusted_country">País Confiable</option>
+          <option value="trusted_asn">ASN Confiable</option>
+          <option value="trusted_server">Servidor Confiable</option>
+          <option value="exception_rule">Excepción por Regla</option>
+          <option value="list_ref">Lista de Referencia</option>
+          <option value="blm_ignore">BLM Ignore</option>
+          <option value="blm_shared">BLM Shared</option>
+          <option value="blm_pmg">BLM PMG</option>
+        </select>
+        <select class="h-10 rounded-xl border border-[#D1D5DB] bg-[#F9FAFB] px-3.5 text-xs text-[#374151] focus:outline-none focus:ring-2 focus:ring-[#E67E22]/70" data-filter-status>
+          <option value="">Todos los estados</option>
+          <option value="true">Activos</option>
+          <option value="false">Inactivos</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- 4. TABLA DE ENTRADAS PRINCIPALES -->
+    <div id="panel-entries" class="rounded-2xl border border-[#E5E7EB] bg-white shadow-sm overflow-hidden">
+      <div class="px-6 py-4 border-b border-[#E5E7EB] flex items-center justify-between bg-[#FAFAFB]">
+        <div>
+          <h3 class="text-xs font-bold uppercase tracking-wider text-[#374151]">Entradas de Seguridad Registradas</h3>
+          <p class="text-xs text-[#6B7280]" data-entries-summary>Cargando registros desde PostgreSQL...</p>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-xs">
+          <thead>
+            <tr class="bg-[#F3F4F6] text-[#4B5563] font-semibold border-b border-[#E5E7EB]">
+              <th class="py-3 px-4 text-left">Valor / Subred</th>
+              <th class="py-3 px-4 text-left">Tipo de Lista</th>
+              <th class="py-3 px-4 text-left">Tenant</th>
+              <th class="py-3 px-4 text-left">Lista / Regla</th>
+              <th class="py-3 px-4 text-left">Motivo / Descripción</th>
+              <th class="py-3 px-4 text-center">Expiración</th>
+              <th class="py-3 px-4 text-center">Estado</th>
+              <th class="py-3 px-4 text-center">Acciones</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[#F3F4F6] text-[#374151]" data-entries-body>
+            <!-- Filas dinámicas -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 5. PANEL DE AUDITORÍA Y TRAZABILIDAD -->
+    <div id="panel-audit" class="hidden space-y-6">
+      <!-- AUDITORÍA DE CAMBIOS -->
+      <div class="rounded-2xl border border-[#E5E7EB] bg-white shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-[#E5E7EB] bg-[#FAFAFB]">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-[#374151]">Historial de Auditoría de Cambios</h3>
+          <p class="text-xs text-[#6B7280]">Registro inmutable de quién creó, modificó o eliminó entradas de listas.</p>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-xs">
+            <thead>
+              <tr class="bg-[#F3F4F6] text-[#4B5563] font-semibold border-b border-[#E5E7EB]">
+                <th class="py-3 px-4 text-left">Fecha (UTC)</th>
+                <th class="py-3 px-4 text-left">Usuario</th>
+                <th class="py-3 px-4 text-center">Acción</th>
+                <th class="py-3 px-4 text-left">Campo Modificado</th>
+                <th class="py-3 px-4 text-left">Motivo</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-[#F3F4F6] text-[#374151]" data-audit-body>
+              <!-- Filas dinámicas -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- TRAZABILIDAD DE EVENTOS IGNORADOS -->
+      <div class="rounded-2xl border border-[#E5E7EB] bg-white shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-[#E5E7EB] bg-[#FAFAFB]">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-[#374151]">Trazabilidad de Eventos Ignorados por Trust List</h3>
+          <p class="text-xs text-[#6B7280]">Evidencia forense de por qué ciertos eventos no generaron alertas en el motor.</p>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-xs">
+            <thead>
+              <tr class="bg-[#F3F4F6] text-[#4B5563] font-semibold border-b border-[#E5E7EB]">
+                <th class="py-3 px-4 text-left">Fecha (UTC)</th>
+                <th class="py-3 px-4 text-left">Tenant</th>
+                <th class="py-3 px-4 text-left">Motivo de Ignore</th>
+                <th class="py-3 px-4 text-left">Coincidencia</th>
+                <th class="py-3 px-4 text-left">Regla</th>
+                <th class="py-3 px-4 text-left">IP Cliente / Host</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-[#F3F4F6] text-[#374151]" data-ignore-log-body>
+              <!-- Filas dinámicas -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL DE CREACIÓN / EDICIÓN -->
+    <div id="entry-modal" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs hidden place-items-center p-4">
+      <div class="w-full max-w-lg bg-white rounded-2xl shadow-xl flex flex-col overflow-hidden">
+        <div class="px-6 py-4 border-b border-[#E5E7EB] flex justify-between items-center bg-[#FAFAFB]">
+          <h3 class="text-sm font-semibold text-[#111827]" data-modal-title>Nueva Entrada en Lista de Seguridad</h3>
+          <button type="button" class="text-xs text-[#6B7280] hover:text-[#111827] flex items-center gap-1" data-modal-close>
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            <span>Cerrar</span>
+          </button>
+        </div>
+
+        <form id="entry-form" class="p-6 space-y-4 text-xs">
+          <input type="hidden" name="id" />
+
+          <div>
+            <label class="block font-semibold text-[#374151] mb-1">Tipo de Lista</label>
+            <select name="list_type" class="w-full h-9 rounded-lg border border-[#D1D5DB] px-3 bg-white" required>
+              <option value="whitelist_ip">Whitelist IP</option>
+              <option value="whitelist_cidr">Whitelist CIDR</option>
+              <option value="trusted_country">País Confiable</option>
+              <option value="trusted_asn">ASN Confiable</option>
+              <option value="trusted_server">Servidor Confiable</option>
+              <option value="exception_rule">Excepción por Regla Específica</option>
+              <option value="list_ref">Lista de Referencia (privileged_users, etc.)</option>
+              <option value="blm_ignore">BlacklistMaster — Ignorar IP/CIDR</option>
+              <option value="blm_shared">BlacklistMaster — Shared Server</option>
+              <option value="blm_pmg">BlacklistMaster — PMG Relay</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block font-semibold text-[#374151] mb-1">Valor almacenado (IP, CIDR, ASN, País, Token)</label>
+            <input type="text" name="value" placeholder="Ej. 192.168.1.100, 10.0.0.0/8, MX, root" class="w-full h-9 rounded-lg border border-[#D1D5DB] px-3" required />
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block font-semibold text-[#374151] mb-1">Tipo de Dato</label>
+              <select name="value_type" class="w-full h-9 rounded-lg border border-[#D1D5DB] px-3 bg-white">
+                <option value="ip">IP</option>
+                <option value="cidr">CIDR</option>
+                <option value="country_code">Código de País</option>
+                <option value="asn">Número ASN</option>
+                <option value="token">Token / Keyword</option>
+                <option value="username">Usuario</option>
+              </select>
+            </div>
+            <div>
+              <label class="block font-semibold text-[#374151] mb-1">Tenant ID</label>
+              <input type="text" name="tenant_id" value="global" class="w-full h-9 rounded-lg border border-[#D1D5DB] px-3" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block font-semibold text-[#374151] mb-1">Nombre de Lista (opcional)</label>
+              <input type="text" name="list_name" placeholder="Ej. privileged_users" class="w-full h-9 rounded-lg border border-[#D1D5DB] px-3" />
+            </div>
+            <div>
+              <label class="block font-semibold text-[#374151] mb-1">Código de Regla (opcional)</label>
+              <input type="text" name="rule_code" placeholder="Ej. AUTH-006" class="w-full h-9 rounded-lg border border-[#D1D5DB] px-3" />
+            </div>
+          </div>
+
+          <div>
+            <label class="block font-semibold text-[#374151] mb-1">Motivo / Justificación</label>
+            <textarea name="reason" rows="2" placeholder="Describa la justificación o número de ticket de cambio..." class="w-full rounded-lg border border-[#D1D5DB] p-2.5"></textarea>
+          </div>
+
+          <div>
+            <label class="block font-semibold text-[#374151] mb-1">Expiración (opcional ISO)</label>
+            <input type="datetime-local" name="expires_at" class="w-full h-9 rounded-lg border border-[#D1D5DB] px-3" />
+          </div>
+
+          <div class="px-6 py-3 border-t border-[#E5E7EB] flex justify-end gap-2 bg-[#FAFAFB] -mx-6 -mb-6 mt-4">
+            <button type="button" class="px-4 py-2 rounded-xl border border-[#D1D5DB] text-xs text-[#374151]" data-modal-close>Cancelar</button>
+            <button type="submit" class="px-5 py-2 rounded-xl bg-[#E67E22] text-white text-xs font-semibold hover:bg-[#D35400] transition">Guardar Entrada</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL IMPORTAR JSON -->
+    <div id="import-modal" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs hidden place-items-center p-4">
+      <div class="w-full max-w-md bg-white rounded-2xl shadow-xl flex flex-col overflow-hidden">
+        <div class="px-6 py-4 border-b border-[#E5E7EB] flex justify-between items-center bg-[#FAFAFB]">
+          <h3 class="text-sm font-semibold text-[#111827]">Importar Listas desde JSON</h3>
+          <button type="button" class="text-xs text-[#6B7280] hover:text-[#111827] flex items-center gap-1" data-import-close>
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            <span>Cerrar</span>
+          </button>
+        </div>
+
+        <div class="p-6 space-y-4 text-xs">
+          <p class="text-[#6B7280]">Pegue el contenido JSON con la estructura del export de listas:</p>
+          <textarea id="import-json-text" rows="8" placeholder='{"entries": [{"list_type": "whitelist_ip", "value": "192.168.1.100", "reason": "Test"}]}' class="w-full font-mono text-[11px] rounded-lg border border-[#D1D5DB] p-3"></textarea>
+
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" class="px-4 py-2 rounded-xl border border-[#D1D5DB] text-xs" data-import-close>Cancelar</button>
+            <button type="button" class="px-5 py-2 rounded-xl bg-[#10B981] text-white text-xs font-semibold" id="btn-submit-import">Ejecutar Importación</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    // @ts-nocheck
+    import { apiGet, apiPost, apiDelete, apiPatch } from "../../lib/api.js";
+
+    let currentTab = "all";
+    let entriesData = [];
+
+    // Elements
+    const bodyEntries = document.querySelector("[data-entries-body]");
+    const summaryEntries = document.querySelector("[data-entries-summary]");
+    const searchInput = document.querySelector("[data-filter-search]");
+    const typeFilter = document.querySelector("[data-filter-type]");
+    const statusFilter = document.querySelector("[data-filter-status]");
+
+    const entryModal = document.getElementById("entry-modal");
+    const importModal = document.getElementById("import-modal");
+
+    const panelEntries = document.getElementById("panel-entries");
+    const panelAudit = document.getElementById("panel-audit");
+    const filterBar = document.getElementById("entries-filter-bar");
+
+    // Load Entries
+    async function loadEntries() {
+      if (!bodyEntries) return;
+      bodyEntries.innerHTML = `<tr><td colspan="8" class="py-8 text-center text-[#9CA3AF]">Cargando registros desde PostgreSQL...</td></tr>`;
+
+      try {
+        const params = {};
+        if (searchInput?.value?.trim()) params.search = searchInput.value.trim();
+        if (typeFilter?.value) params.list_type = typeFilter.value;
+        if (statusFilter?.value) params.enabled = statusFilter.value;
+
+        const data = await apiGet("/api/v1/lists", params);
+        entriesData = data.entries || [];
+        renderEntries(entriesData);
+      } catch (err) {
+        console.error("Error al cargar listas:", err);
+        bodyEntries.innerHTML = `<tr><td colspan="8" class="py-6 text-center text-[#DC2626] font-medium">Error al conectar con la API de Listas. Asegúrese de que el backend esté ejecutándose.</td></tr>`;
+      }
+    }
+
+    function renderEntries(entries) {
+      let filtered = entries;
+      if (currentTab === "whitelist") {
+        filtered = entries.filter(e => ["whitelist_ip", "whitelist_cidr", "trusted_country", "trusted_asn", "trusted_server"].includes(e.list_type));
+      } else if (currentTab === "exception") {
+        filtered = entries.filter(e => e.list_type === "exception_rule");
+      } else if (currentTab === "blacklistmaster") {
+        filtered = entries.filter(e => ["blm_ignore", "blm_shared", "blm_pmg"].includes(e.list_type));
+      } else if (currentTab === "reference") {
+        filtered = entries.filter(e => ["list_ref", "suspicious_asn", "suspicious_token"].includes(e.list_type));
+      }
+
+      if (summaryEntries) summaryEntries.textContent = `Mostrando ${filtered.length} de ${entries.length} entradas cargadas`;
+
+      if (filtered.length === 0) {
+        bodyEntries.innerHTML = `<tr><td colspan="8" class="py-8 text-center text-[#9CA3AF]">No hay entradas registradas para este filtro.</td></tr>`;
+        return;
+      }
+
+      bodyEntries.innerHTML = "";
+      filtered.forEach(e => {
+        const tr = document.createElement("tr");
+        tr.className = "hover:bg-[#F9FAFB] transition";
+
+        const badgeState = e.enabled
+          ? `<span class="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#D1FAE5] text-[#065F46]">Activo</span>`
+          : `<span class="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#F3F4F6] text-[#4B5563]">Inactivo</span>`;
+
+        const expStr = e.expires_at ? new Date(e.expires_at).toLocaleDateString() : "Nunca";
+        const ruleOrList = e.rule_code ? `Regla: ${e.rule_code}` : e.list_name ? `Lista: ${e.list_name}` : "—";
+
+        tr.innerHTML = `
+          <td class="py-3 px-4 font-mono font-semibold text-[#111827]">${e.value}</td>
+          <td class="py-3 px-4"><span class="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-[#E5E7EB] text-[#374151]">${e.list_type}</span></td>
+          <td class="py-3 px-4 text-[#4B5563]">${e.tenant_id}</td>
+          <td class="py-3 px-4 text-[#4B5563]">${ruleOrList}</td>
+          <td class="py-3 px-4 text-[#6B7280] max-w-xs truncate" title="${e.reason || ''}">${e.reason || '—'}</td>
+          <td class="py-3 px-4 text-center text-[#6B7280]">${expStr}</td>
+          <td class="py-3 px-4 text-center">${badgeState}</td>
+          <td class="py-3 px-4 text-center space-x-1.5">
+            <button type="button" class="px-2.5 py-1 rounded-lg bg-[#F3F4F6] text-[#374151] text-[11px] font-medium hover:bg-[#E5E7EB] transition inline-flex items-center gap-1" data-btn-toggle="${e.id}" title="Activar / Desactivar">
+              <span>Estado</span>
+            </button>
+            <button type="button" class="px-2.5 py-1 rounded-lg bg-[#FEE2E2] text-[#991B1B] text-[11px] font-medium hover:bg-[#FCA5A5] transition inline-flex items-center gap-1" data-btn-delete="${e.id}" title="Eliminar entrada">
+              <span>Eliminar</span>
+            </button>
+          </td>
+        `;
+        bodyEntries.appendChild(tr);
+      });
+
+      // Bind dynamic actions
+      document.querySelectorAll("[data-btn-toggle]").forEach(b => {
+        b.addEventListener("click", async () => {
+          const id = b.getAttribute("data-btn-toggle");
+          await apiPatch(`/api/v1/lists/${id}/toggle`, {});
+          loadEntries();
+        });
+      });
+
+      document.querySelectorAll("[data-btn-delete]").forEach(b => {
+        b.addEventListener("click", async () => {
+          const id = b.getAttribute("data-btn-delete");
+          if (confirm("¿Confirmar eliminación de esta entrada de seguridad?")) {
+            await apiDelete(`/api/v1/lists/${id}`);
+            loadEntries();
+          }
+        });
+      });
+    }
+
+    // Load Audit and Ignore Logs
+    async function loadAuditAndIgnoreLogs() {
+      const auditBody = document.querySelector("[data-audit-body]");
+      const ignoreBody = document.querySelector("[data-ignore-log-body]");
+
+      try {
+        const auditData = await apiGet("/api/v1/lists/audit");
+        if (auditBody) {
+          auditBody.innerHTML = (auditData.logs || []).map(l => `
+            <tr>
+              <td class="py-2.5 px-4 font-mono text-[11px]">${l.performed_at ? new Date(l.performed_at).toLocaleString() : '—'}</td>
+              <td class="py-2.5 px-4 font-semibold text-[#111827]">${l.performed_by}</td>
+              <td class="py-2.5 px-4 text-center"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-[#E5E7EB] text-[#374151]">${l.action}</span></td>
+              <td class="py-2.5 px-4 text-[#4B5563]">${l.field_changed || '—'}</td>
+              <td class="py-2.5 px-4 text-[#6B7280]">${l.reason || '—'}</td>
+            </tr>
+          `).join('') || `<tr><td colspan="5" class="py-4 text-center text-[#9CA3AF]">Sin registros de auditoría.</td></tr>`;
+        }
+
+        const ignoreData = await apiGet("/api/v1/lists/ignore-log");
+        if (ignoreBody) {
+          ignoreBody.innerHTML = (ignoreData.logs || []).map(l => `
+            <tr>
+              <td class="py-2.5 px-4 font-mono text-[11px]">${l.logged_at ? new Date(l.logged_at).toLocaleString() : '—'}</td>
+              <td class="py-2.5 px-4 text-[#374151]">${l.tenant_id}</td>
+              <td class="py-2.5 px-4 font-semibold text-[#92400E]">${l.ignore_reason}</td>
+              <td class="py-2.5 px-4 font-mono text-[11px]">${l.value_matched}</td>
+              <td class="py-2.5 px-4 text-[#4B5563]">${l.rule_code || '—'}</td>
+              <td class="py-2.5 px-4 text-[#6B7280]">${l.ip_client || l.server || '—'}</td>
+            </tr>
+          `).join('') || `<tr><td colspan="6" class="py-4 text-center text-[#9CA3AF]">Sin eventos ignorados registrados.</td></tr>`;
+        }
+      } catch (e) {
+        console.error("Error al cargar auditoría:", e);
+      }
+    }
+
+    // Tabs listener
+    document.querySelectorAll("[data-module-tabs] button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("[data-module-tabs] button").forEach(b => {
+          b.className = "px-4 py-2 rounded-xl text-xs font-medium text-[#4B5563] hover:bg-[#F3F4F6] transition";
+        });
+        btn.className = "px-4 py-2 rounded-xl text-xs font-semibold bg-[#E67E22] text-white shadow-xs transition";
+
+        currentTab = btn.getAttribute("data-tab");
+        if (currentTab === "audit") {
+          panelEntries.classList.add("hidden");
+          filterBar.classList.add("hidden");
+          panelAudit.classList.remove("hidden");
+          loadAuditAndIgnoreLogs();
+        } else {
+          panelAudit.classList.add("hidden");
+          panelEntries.classList.remove("hidden");
+          filterBar.classList.remove("hidden");
+          renderEntries(entriesData);
+        }
+      });
+    });
+
+    // Add Action
+    document.querySelector("[data-action-add]")?.addEventListener("click", () => {
+      entryModal.classList.remove("hidden");
+      entryModal.classList.add("grid");
+    });
+
+    // Close Modal
+    document.querySelectorAll("[data-modal-close]").forEach(b => {
+      b.addEventListener("click", () => {
+        entryModal.classList.add("hidden");
+        entryModal.classList.remove("grid");
+      });
+    });
+
+    // Form Submit
+    document.getElementById("entry-form")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const payload = {
+        list_type: formData.get("list_type"),
+        value: formData.get("value"),
+        value_type: formData.get("value_type"),
+        tenant_id: formData.get("tenant_id") || "global",
+        list_name: formData.get("list_name") || null,
+        rule_code: formData.get("rule_code") || null,
+        reason: formData.get("reason") || null,
+        expires_at: formData.get("expires_at") ? new Date(formData.get("expires_at")).toISOString() : null,
+      };
+
+      try {
+        await apiPost("/api/v1/lists", payload);
+        entryModal.classList.add("hidden");
+        entryModal.classList.remove("grid");
+        loadEntries();
+      } catch (err) {
+        alert("Error al guardar entrada: " + err.message);
+      }
+    });
+
+    // Refresh Cache
+    document.querySelector("[data-action-refresh-cache]")?.addEventListener("click", async () => {
+      try {
+        await apiPost("/api/v1/lists/cache/refresh", {});
+        alert("Caché en memoria recargado exitosamente.");
+        loadEntries();
+      } catch (e) {
+        alert("Error al refrescar caché: " + e.message);
+      }
+    });
+
+    // Export JSON
+    document.querySelector("[data-action-export]")?.addEventListener("click", async () => {
+      try {
+        const data = await apiGet("/api/v1/lists/export-json");
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `sentinelx_security_lists_${new Date().toISOString().slice(0,10)}.json`;
+        a.click();
+      } catch (e) {
+        alert("Error al exportar JSON: " + e.message);
+      }
+    });
+
+    // Import JSON Modal
+    document.querySelector("[data-action-import]")?.addEventListener("click", () => {
+      importModal.classList.remove("hidden");
+      importModal.classList.add("grid");
+    });
+
+    document.querySelectorAll("[data-import-close]").forEach(b => {
+      b.addEventListener("click", () => {
+        importModal.classList.add("hidden");
+        importModal.classList.remove("grid");
+      });
+    });
+
+    document.getElementById("btn-submit-import")?.addEventListener("click", async () => {
+      const text = document.getElementById("import-json-text").value;
+      try {
+        const payload = JSON.parse(text);
+        const res = await apiPost("/api/v1/lists/import-json", payload);
+        alert(`Importación completada: ${res.imported} entradas insertadas.`);
+        importModal.classList.add("hidden");
+        importModal.classList.remove("grid");
+        loadEntries();
+      } catch (e) {
+        alert("Error al importar JSON: " + e.message);
+      }
+    });
+
+    // Filters
+    searchInput?.addEventListener("input", loadEntries);
+    typeFilter?.addEventListener("change", loadEntries);
+    statusFilter?.addEventListener("change", loadEntries);
+
+    // Initial Load
+    loadEntries();
+  </script>
+</DashboardLayout>

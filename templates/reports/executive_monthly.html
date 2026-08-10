@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>SentinelX SIEM — Reporte Ejecutivo Mensual de Seguridad</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Helvetica, Arial, sans-serif; background-color: #F8FAFC; color: #0F172A; padding: 30px; }
+    .container { max-width: 900px; margin: 0 auto; }
+    .header { padding-bottom: 15px; border-bottom: 2px solid #F97316; margin-bottom: 25px; }
+    .brand { font-size: 22px; font-weight: bold; color: #0F172A; }
+    .brand span { color: #F97316; }
+    
+    .stats-table { width: 100%; border-collapse: collapse; margin-bottom: 25px; border: none; }
+    .stat-card { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px; text-align: center; width: 23%; }
+    .stat-card .value { font-size: 22px; font-weight: bold; color: #0F172A; margin-top: 4px; }
+    .stat-card .trend { font-size: 10px; font-weight: bold; margin-top: 2px; }
+    .trend-up { color: #DC2626; }
+    .trend-down { color: #16A34A; }
+    
+    .section { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+    .section-title { font-size: 14px; font-weight: bold; color: #0F172A; margin-bottom: 12px; }
+    table.data-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+    table.data-table th { background: #F1F5F9; color: #64748B; padding: 8px 10px; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #E2E8F0; }
+    table.data-table td { padding: 10px; border-bottom: 1px solid #E2E8F0; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: bold; }
+    .badge-critical { background: #FEE2E2; color: #DC2626; }
+    .badge-high { background: #FFEDD5; color: #EA580C; }
+    .footer { text-align: center; font-size: 10px; color: #64748B; margin-top: 30px; padding-top: 15px; border-top: 1px solid #E2E8F0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="brand">Sentinel<span>X</span> SIEM</div>
+      <div style="margin-top: 5px;">
+        <h1 style="font-size:16px; font-weight:bold;">Reporte Ejecutivo Mensual</h1>
+        <p style="font-size:11px; color:#64748B;">Período: {{ period_start }} — {{ period_end }} | Tenant: {{ tenant_id }}</p>
+      </div>
+    </div>
+
+    <table class="stats-table">
+      <tr>
+        <td class="stat-card">
+          <div style="font-size:10px; color:#64748B; font-weight:bold;">EVENTOS PROCESADOS</div>
+          <div class="value">{{ total_events }}</div>
+          <div class="trend {% if events_trend >= 0 %}trend-up{% else %}trend-down{% endif %}">
+            {% if events_trend >= 0 %}▲ +{{ events_trend }}%{% else %}▼ {{ events_trend }}%{% endif %} vs mes anterior
+          </div>
+        </td>
+        <td style="width: 2%;"></td>
+        <td class="stat-card">
+          <div style="font-size:10px; color:#64748B; font-weight:bold;">ALERTAS TOTALES</div>
+          <div class="value">{{ total_alerts }}</div>
+          <div class="trend {% if alerts_trend >= 0 %}trend-up{% else %}trend-down{% endif %}">
+            {% if alerts_trend >= 0 %}▲ +{{ alerts_trend }}%{% else %}▼ {{ alerts_trend }}%{% endif %} vs mes anterior
+          </div>
+        </td>
+        <td style="width: 2%;"></td>
+        <td class="stat-card">
+          <div style="font-size:10px; color:#64748B; font-weight:bold;">INCIDENTES CREADOS</div>
+          <div class="value">{{ total_incidents }}</div>
+          <div class="trend {% if incidents_trend >= 0 %}trend-up{% else %}trend-down{% endif %}">
+            {% if incidents_trend >= 0 %}▲ +{{ incidents_trend }}%{% else %}▼ {{ incidents_trend }}%{% endif %} vs mes anterior
+          </div>
+        </td>
+        <td style="width: 2%;"></td>
+        <td class="stat-card">
+          <div style="font-size:10px; color:#64748B; font-weight:bold;">MTTR PROMEDIO</div>
+          <div class="value">{{ mttr_hours }}h</div>
+          <div class="trend trend-down">Meta SOC: &lt; 4h</div>
+        </td>
+      </tr>
+    </table>
+
+    <div class="section">
+      <div class="section-title">Evolución de Amenazas y Comparativa Mensual</div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Métrica SOC</th>
+            <th>Mes Actual</th>
+            <th>Mes Anterior</th>
+            <th>Variación %</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Eventos ECS Ingestados</td>
+            <td><strong>{{ total_events }}</strong></td>
+            <td>{{ prev_events }}</td>
+            <td><strong>{{ events_trend }}%</strong></td>
+          </tr>
+          <tr>
+            <td>Alertas Generadas</td>
+            <td><strong>{{ total_alerts }}</strong></td>
+            <td>{{ prev_alerts }}</td>
+            <td><strong>{{ alerts_trend }}%</strong></td>
+          </tr>
+          <tr>
+            <td>Incidentes de Seguridad</td>
+            <td><strong>{{ total_incidents }}</strong></td>
+            <td>{{ prev_incidents }}</td>
+            <td><strong>{{ incidents_trend }}%</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Top Amenazas y Reglas Activadas</div>
+      <table class="data-table">
+        <thead>
+          <tr><th>Regla / Amenaza</th><th>Fuente</th><th>Disparos</th></tr>
+        </thead>
+        <tbody>
+          {% for r in top_rules %}
+          <tr><td><strong>{{ r.name }}</strong></td><td><code>{{ r.source }}</code></td><td><strong>{{ r.count }}</strong></td></tr>
+          {% else %}
+          <tr><td colspan="3" style="text-align:center;">Sin datos.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="footer">
+      Generado por SentinelX SIEM | Fecha: {{ generated_at }} | Autor: {{ created_by }}
+    </div>
+  </div>
+</body>
+</html>

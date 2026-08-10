@@ -158,8 +158,9 @@ class OpenSearchClient:
         self,
         query_body: Dict[str, Any],
         tenant_id: str,
-        target_stream: str = "sentinelx-events-hosting-default",
+        target_stream: str = "sentinelx-events-*",
     ) -> Dict[str, Any]:
+
         """
         Ejecuta una búsqueda en OpenSearch garantizando el aislamiento estricto por tenant_id.
         Inyecta obligatoriamente el filtro term: tenant.id.

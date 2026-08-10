@@ -19,6 +19,3 @@ class JobState(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    __table_args__ = (
-        Index("ix_job_state_job_name", "job_name"),
-    )

@@ -62,13 +62,19 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
     const xLabels = document.querySelector("[data-x-labels]");
     const detailsBox = document.querySelector("[data-activity-details]");
 
-    const MAX_BAR_HEIGHT = Number(
-      chartArea?.dataset.maxBarHeight || 140
-    );
+    const MAX_BAR_HEIGHT = Number(chartArea?.dataset.maxBarHeight || 140);
     const TICKS = Number(chartArea?.dataset.ticks || 4);
 
-    // @ts-ignore
-    const TOKEN = window.SENTINELX_TOKEN || null;
+    function getAuthToken() {
+      if (typeof window === "undefined") return null;
+      return (
+        sessionStorage.getItem("sentinelx_token") ||
+        localStorage.getItem("sentinelx_token") ||
+        // @ts-ignore
+        window.SENTINELX_TOKEN ||
+        null
+      );
+    }
 
     /**
      * @param {{server:string; dateRange:string; severity:string; rangeFrom?:string|null; rangeTo?:string|null}} filters
@@ -114,6 +120,7 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
      * }} ActivityPoint
      */
 
+
     /**
      * @param {{server:string; dateRange:string; severity:string; rangeFrom?:string|null; rangeTo?:string|null}} filters
      */
@@ -121,18 +128,20 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
       if (!chartArea || !xLabels || !detailsBox) return;
 
       const params = buildQueryParams(filters);
+      const token = getAuthToken();
 
       const res = await fetch(
-        `${API_BASE}/dashboard/activity?${params.toString()}`,
+        `${API_BASE}/api/v1/dashboard/activity?${params.toString()}`,
         {
-          headers: TOKEN
+          headers: token
             ? {
-                Authorization: `Bearer ${TOKEN}`,
+                Authorization: `Bearer ${token}`,
                 Accept: "application/json",
               }
             : { Accept: "application/json" },
         }
       );
+
 
       if (!res.ok) {
         console.error("Error cargando /dashboard/activity:", await res.text());
@@ -155,8 +164,18 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
         return;
       }
 
-      const allValues = data.flatMap((d) => [d.bruteForce, d.bots]);
-      const maxValue = Math.max(...allValues, 1);
+      // Excluimos 'events' de la escala ya que no es una barra renderizada
+      const allValues = data.flatMap((d) => [
+        Number(d.bruteForce) || 0,
+        Number(d.bots) || 0,
+        Number(d.exploits) || 0,
+        Number(d.wpCoreErrors) || 0,
+        Number(d.fileAnomalies) || 0,
+        Number(d.mailThreats) || 0,
+        Number(d.panelAccess) || 0,
+      ]);
+      const validValues = allValues.filter((v) => !isNaN(v) && isFinite(v) && v >= 0);
+      const maxValue = Math.max(...validValues, 1);
       const scale = MAX_BAR_HEIGHT / maxValue;
 
       chartArea.innerHTML = "";
@@ -174,8 +193,8 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
 
         const label = document.createElement("span");
         label.className =
-          "w-10 pr-1 text-[10px] text-[#9CA3AF] text-right";
-        label.textContent = String(value);
+          "w-10 pr-1 text-[10px] text-[#9CA3AF] text-right font-mono";
+        label.textContent = String(isNaN(value) ? 0 : value);
 
         const line = document.createElement("div");
         line.className = "flex-1 border-t border-[#E5E7EB]";
@@ -185,37 +204,51 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
       }
       chartArea.append(ticksFrag);
 
-      // --- Barras ---
+      // --- Barras y Etiquetas Eje X ---
       const barsRow = document.createElement("div");
       barsRow.className =
-        "absolute inset-y-2 bottom-2 left-12 right-4 flex items-end justify-between";
+        "absolute inset-y-2 bottom-2 left-12 right-4 flex items-end justify-between overflow-hidden";
 
-      data.forEach((point) => {
+      // Calculamos paso para etiquetas eje X si hay más de 10 puntos
+      const step = data.length > 10 ? Math.ceil(data.length / 8) : 1;
+
+      data.forEach((point, idx) => {
+        const bruteVal = Number(point.bruteForce) || 0;
+        const botsVal = Number(point.bots) || 0;
+
         const group = document.createElement("div");
         group.className = "flex items-end gap-1";
+        group.title = `${point.label || point.date} — Fuerza Bruta: ${bruteVal}, Bots: ${botsVal}`;
 
         const bar1 = document.createElement("span");
-        bar1.className = "w-4 rounded-md bg-[#E67E22]";
-        bar1.style.height = point.bruteForce * scale + "px";
+        bar1.className = "w-3 sm:w-4 rounded-t-sm bg-[#E67E22] transition-all duration-200 hover:opacity-80";
+        const h1 = Math.min(MAX_BAR_HEIGHT, Math.max(0, bruteVal * scale));
+        bar1.style.height = (isNaN(h1) ? 0 : h1) + "px";
 
         const bar2 = document.createElement("span");
-        bar2.className = "w-4 rounded-md bg-[#F0B400]";
-        bar2.style.height = point.bots * scale + "px";
+        bar2.className = "w-3 sm:w-4 rounded-t-sm bg-[#F0B400] transition-all duration-200 hover:opacity-80";
+        const h2 = Math.min(MAX_BAR_HEIGHT, Math.max(0, botsVal * scale));
+        bar2.style.height = (isNaN(h2) ? 0 : h2) + "px";
 
         group.append(bar1, bar2);
         barsRow.append(group);
 
         const xLabel = document.createElement("span");
-        xLabel.className = "text-[11px] text-[#6B7280]";
-        // usamos label del backend; si no viene, caemos al date
-        xLabel.textContent = point.label || point.date;
+        xLabel.className = "text-[10px] text-[#6B7280] font-mono text-center flex-1";
+        
+        // Muestra etiqueta solo si coincide con el paso o es el último elemento
+        if (idx % step === 0 || idx === data.length - 1) {
+          xLabel.textContent = point.label || point.date || "";
+        } else {
+          xLabel.textContent = "";
+        }
         xLabels.append(xLabel);
       });
 
       chartArea.append(barsRow);
-
       renderDetails(detailsBox, data);
     }
+
 
     /**
      * @param {HTMLElement} box

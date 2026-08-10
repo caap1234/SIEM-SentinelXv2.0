@@ -168,3 +168,17 @@ export async function apiPut(endpoint, data = {}) {
 export async function apiDelete(endpoint) {
   return apiFetch(endpoint, { method: "DELETE" });
 }
+
+/**
+ * Petición PATCH enviando JSON.
+ * @param {string} endpoint
+ * @param {any} data
+ * @returns {Promise<any>}
+ */
+export async function apiPatch(endpoint, data = {}) {
+  return apiFetch(endpoint, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}

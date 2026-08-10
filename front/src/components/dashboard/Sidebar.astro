@@ -4,107 +4,274 @@ import IconLogs from "../../icons/nav-logs.svg";
 import IconIncidents from "../../icons/nav-incidents.svg";
 import IconEvents from "../../icons/nav-events.svg";
 import IconIps from "../../icons/nav-ips.svg";
-import IconProcesos from "../../icons/nav-processes.svg"; // 🆕 PROCESOS
+import IconProcesos from "../../icons/nav-processes.svg";
 import IconRecomendaciones from "../../icons/nav-recomendaciones.svg";
 import IconConfig from "../../icons/nav-config.svg";
 
-type IconMap = {
-  dashboard: typeof IconDashboard;
-  logs: typeof IconLogs;
-  incidentes: typeof IconIncidents;
-  procesos: typeof IconProcesos;
-  events: typeof IconEvents;
-  ips: typeof IconIps;
-  api: typeof IconRecomendaciones;
-  config: typeof IconConfig;
-  hunting?: typeof IconLogs;
-  evidence?: typeof IconLogs;
-};
-
-const iconMap: IconMap = {
-  dashboard: IconDashboard,
-  hunting: IconLogs,
-  evidence: IconLogs,
-  logs: IconLogs,
-  incidentes: IconIncidents,
-  procesos: IconProcesos,
-  events: IconEvents,
-  ips: IconIps,
-  api: IconRecomendaciones,
-  config: IconConfig,
-};
-
-
-type NavItemId = keyof IconMap;
-
-interface NavItem {
-  id: NavItemId;
-  label: string;
-  href: string;
-  permission?: string;
-}
-
-const navItems: NavItem[] = [
-  { id: "dashboard", label: "Dashboard", href: "/dashboard", permission: "ingest.read" },
-  { id: "hunting", label: "Threat Hunting", href: "/dashboard/hunting", permission: "ingest.read" },
-  { id: "evidence", label: "Evidencia S3", href: "/dashboard/evidence", permission: "ingest.read" },
-  { id: "logs", label: "Cargar Logs", href: "/dashboard/cargar-logs", permission: "configuration.manage" },
-  { id: "incidentes", label: "Incidentes", href: "/dashboard/incidentes", permission: "incidents.manage" },
-  { id: "ips", label: "Entidades", href: "/dashboard/entidades", permission: "alerts.read" },
-  { id: "events", label: "Alertas Detectadas", href: "/dashboard/alertas", permission: "alerts.read" },
-  { id: "procesos", label: "Procesos", href: "/dashboard/procesos", permission: "ingest.read" },
-  { id: "api", label: "API Keys", href: "/dashboard/api-keys", permission: "agents.manage" },
-  { id: "config", label: "Configuración", href: "/dashboard/configuracion", permission: "configuration.manage" },
-];
-
-
-const bottomItem = {
-  label: "Cerrar Sesión",
-  href: "/login",
-  icon: "/svg/nav-logout.svg",
-};
-
-const normalize = (path: string) =>
-  path.replace(/\/+$/, "") || "/";
-
+const normalize = (path: string) => path.replace(/\/+$/, "") || "/";
 const currentPath = normalize(Astro.url.pathname);
+
+const isAdminRouteActive = ["/dashboard/reglas", "/dashboard/reglas-incidentes", "/dashboard/configuracion", "/dashboard/listas"].some(
+  (path) => currentPath.startsWith(path)
+);
 ---
 
 <aside
-  class="w-[262px] min-h-screen bg-[#20262C] text-[#D6D9DD] flex flex-col border-r border-black/20"
+  class="w-64 shrink-0 min-h-screen bg-[#20262C] text-[#D6D9DD] flex flex-col border-r border-black/20"
 >
   <!-- Logo -->
   <div class="px-6 pt-6 pb-5 flex items-center gap-3 border-b border-black/20">
-    <span class="h-8 w-1 bg-[#E67E22]"></span>
-    <span class="text-2xl font-bold tracking-tight text-[#E67E22]">
+    <span class="h-8 w-1 bg-[#E67E22] rounded-full"></span>
+    <span class="text-xl font-bold tracking-tight text-[#E67E22]">
       SentinelX SIEM
     </span>
   </div>
 
-  <!-- Navegación -->
-  <nav class="flex-1 px-4 pt-6 pb-4 space-y-2" data-sidebar-nav>
-    {navItems.map((item) => {
-      const isActive = normalize(item.href) === currentPath;
-      const Icon = iconMap[item.id];
+  <!-- Navegación por Categorías -->
+  <nav class="flex-1 px-4 pt-5 pb-4 space-y-5 overflow-y-auto" data-sidebar-nav>
+    <!-- 1. Principal -->
+    <div>
+      <a
+        href="/dashboard"
+        data-nav-id="dashboard"
+        data-rbac-perm="ingest.read"
+        class={`flex items-center gap-3.5 px-3.5 py-2 rounded-lg text-sm transition-colors ${
+          currentPath === "/dashboard"
+            ? "bg-[#2A3138] text-[#E67E22] font-semibold"
+            : "text-[#D6D9DD] hover:bg-[#2A3138]"
+        }`}
+      >
+        <IconDashboard class="h-5 w-5 shrink-0" />
+        <span>Dashboard</span>
+      </a>
+    </div>
 
-      return (
-        <a
-          href={item.href}
-          data-nav-id={item.id}
-          data-rbac-perm={item.permission || ""}
-          class={`flex items-center gap-5 px-4 py-2.5 rounded-lg text-[16px] transition-colors
-            ${
-              isActive
-                ? "bg-[#2A3138] text-[#E67E22]"
-                : "text-[#D6D9DD] hover:bg-[#2A3138]"
-            }`}
+    <!-- 2. Operaciones SOC -->
+    <div class="space-y-1">
+      <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-[#6B7280]">
+        Operaciones SOC
+      </p>
+      <a
+        href="/dashboard/incidentes"
+        data-nav-id="incidentes"
+        data-rbac-perm="incidents.manage"
+        class={`flex items-center gap-3.5 px-3.5 py-2 rounded-lg text-sm transition-colors ${
+          currentPath.startsWith("/dashboard/incidentes")
+            ? "bg-[#2A3138] text-[#E67E22] font-semibold"
+            : "text-[#D6D9DD] hover:bg-[#2A3138]"
+        }`}
+      >
+        <IconIncidents class="h-5 w-5 shrink-0" />
+        <span>Incidentes</span>
+      </a>
+      <a
+        href="/dashboard/alertas"
+        data-nav-id="events"
+        data-rbac-perm="alerts.read"
+        class={`flex items-center gap-3.5 px-3.5 py-2 rounded-lg text-sm transition-colors ${
+          currentPath.startsWith("/dashboard/alertas")
+            ? "bg-[#2A3138] text-[#E67E22] font-semibold"
+            : "text-[#D6D9DD] hover:bg-[#2A3138]"
+        }`}
+      >
+        <IconEvents class="h-5 w-5 shrink-0" />
+        <span>Alertas</span>
+      </a>
+      <a
+        href="/dashboard/entidades"
+        data-nav-id="ips"
+        data-rbac-perm="alerts.read"
+        class={`flex items-center gap-3.5 px-3.5 py-2 rounded-lg text-sm transition-colors ${
+          currentPath.startsWith("/dashboard/entidades")
+            ? "bg-[#2A3138] text-[#E67E22] font-semibold"
+            : "text-[#D6D9DD] hover:bg-[#2A3138]"
+        }`}
+      >
+        <IconIps class="h-5 w-5 shrink-0" />
+        <span>Entidades</span>
+      </a>
+      <a
+        href="/dashboard/hunting"
+        data-nav-id="hunting"
+        data-rbac-perm="ingest.read"
+        class={`flex items-center gap-3.5 px-3.5 py-2 rounded-lg text-sm transition-colors ${
+          currentPath.startsWith("/dashboard/hunting")
+            ? "bg-[#2A3138] text-[#E67E22] font-semibold"
+            : "text-[#D6D9DD] hover:bg-[#2A3138]"
+        }`}
+      >
+        <IconLogs class="h-5 w-5 shrink-0" />
+        <span>Threat Hunting</span>
+      </a>
+      <a
+        href="/dashboard/reportes"
+        data-nav-id="reportes"
+        data-rbac-perm="incidents.manage"
+        class={`flex items-center gap-3.5 px-3.5 py-2 rounded-lg text-sm transition-colors ${
+          currentPath.startsWith("/dashboard/reportes")
+            ? "bg-[#2A3138] text-[#E67E22] font-semibold"
+            : "text-[#D6D9DD] hover:bg-[#2A3138]"
+        }`}
+      >
+        <IconRecomendaciones class="h-5 w-5 shrink-0" />
+        <span>Reportes SOC</span>
+      </a>
+    </div>
+
+
+    <!-- 3. Ingesta & Evidencia -->
+    <div class="space-y-1">
+      <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-[#6B7280]">
+        Ingesta & Evidencia
+      </p>
+      <a
+        href="/dashboard/agentes"
+        data-nav-id="agentes"
+        data-rbac-perm="agents.manage"
+        class={`flex items-center gap-3.5 px-3.5 py-2 rounded-lg text-sm transition-colors ${
+          currentPath.startsWith("/dashboard/agentes")
+            ? "bg-[#2A3138] text-[#E67E22] font-semibold"
+            : "text-[#D6D9DD] hover:bg-[#2A3138]"
+        }`}
+      >
+        <IconProcesos class="h-5 w-5 shrink-0" />
+        <span>Agentes Linux</span>
+      </a>
+      <a
+        href="/dashboard/cargar-logs"
+        data-nav-id="logs"
+        data-rbac-perm="configuration.manage"
+        class={`flex items-center gap-3.5 px-3.5 py-2 rounded-lg text-sm transition-colors ${
+          currentPath.startsWith("/dashboard/cargar-logs")
+            ? "bg-[#2A3138] text-[#E67E22] font-semibold"
+            : "text-[#D6D9DD] hover:bg-[#2A3138]"
+        }`}
+      >
+        <IconLogs class="h-5 w-5 shrink-0" />
+        <span>Cargar Logs</span>
+      </a>
+      <a
+        href="/dashboard/procesos"
+        data-nav-id="procesos"
+        data-rbac-perm="ingest.read"
+        class={`flex items-center gap-3.5 px-3.5 py-2 rounded-lg text-sm transition-colors ${
+          currentPath.startsWith("/dashboard/procesos")
+            ? "bg-[#2A3138] text-[#E67E22] font-semibold"
+            : "text-[#D6D9DD] hover:bg-[#2A3138]"
+        }`}
+      >
+        <IconProcesos class="h-5 w-5 shrink-0" />
+        <span>Procesos</span>
+      </a>
+      <a
+        href="/dashboard/api-keys"
+        data-nav-id="api"
+        data-rbac-perm="agents.manage"
+        class={`flex items-center gap-3.5 px-3.5 py-2 rounded-lg text-sm transition-colors ${
+          currentPath.startsWith("/dashboard/api-keys")
+            ? "bg-[#2A3138] text-[#E67E22] font-semibold"
+            : "text-[#D6D9DD] hover:bg-[#2A3138]"
+        }`}
+      >
+        <IconRecomendaciones class="h-5 w-5 shrink-0" />
+        <span>API Keys</span>
+      </a>
+      <a
+        href="/dashboard/evidence"
+        data-nav-id="evidence"
+        data-rbac-perm="ingest.read"
+        class={`flex items-center gap-3.5 px-3.5 py-2 rounded-lg text-sm transition-colors ${
+          currentPath.startsWith("/dashboard/evidence")
+            ? "bg-[#2A3138] text-[#E67E22] font-semibold"
+            : "text-[#D6D9DD] hover:bg-[#2A3138]"
+        }`}
+      >
+        <IconLogs class="h-5 w-5 shrink-0" />
+        <span>Evidencia S3</span>
+      </a>
+    </div>
+
+    <!-- 4. Administración (Colapsable) -->
+    <div class="space-y-1">
+      <button
+        type="button"
+        data-sidebar-toggle-admin
+        class="w-full flex items-center justify-between px-3 py-1 text-left group focus:outline-none"
+      >
+        <span class="text-[10px] font-bold uppercase tracking-wider text-[#6B7280] group-hover:text-[#D6D9DD] transition-colors">
+          Administración
+        </span>
+        <svg
+          data-sidebar-admin-arrow
+          class={`w-3.5 h-3.5 text-[#6B7280] transition-transform duration-200 ${
+            isAdminRouteActive ? "rotate-180" : ""
+          }`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
         >
-          {Icon ? <Icon class="h-6 w-6 shrink-0" /> : null}
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
 
-          <span>{item.label}</span>
+      <div
+        data-sidebar-admin-menu
+        class={`space-y-1 ${isAdminRouteActive ? "" : "hidden"}`}
+      >
+        <a
+          href="/dashboard/reglas"
+          data-nav-id="reglas"
+          data-rbac-perm="configuration.manage"
+          class={`flex items-center gap-3.5 px-3.5 py-2 rounded-lg text-sm transition-colors ${
+            currentPath === "/dashboard/reglas"
+              ? "bg-[#2A3138] text-[#E67E22] font-semibold"
+              : "text-[#D6D9DD] hover:bg-[#2A3138]"
+          }`}
+        >
+          <IconConfig class="h-5 w-5 shrink-0" />
+          <span>Reglas Detección</span>
         </a>
-      );
-    })}
+        <a
+          href="/dashboard/reglas-incidentes"
+          data-nav-id="reglas-incidentes"
+          data-rbac-perm="configuration.manage"
+          class={`flex items-center gap-3.5 px-3.5 py-2 rounded-lg text-sm transition-colors ${
+            currentPath.startsWith("/dashboard/reglas-incidentes")
+              ? "bg-[#2A3138] text-[#E67E22] font-semibold"
+              : "text-[#D6D9DD] hover:bg-[#2A3138]"
+          }`}
+        >
+          <IconConfig class="h-5 w-5 shrink-0" />
+          <span>Reglas Incidentes</span>
+        </a>
+        <a
+          href="/dashboard/listas"
+          data-nav-id="listas"
+          data-rbac-perm="configuration.manage"
+          class={`flex items-center gap-3.5 px-3.5 py-2 rounded-lg text-sm transition-colors ${
+            currentPath.startsWith("/dashboard/listas")
+              ? "bg-[#2A3138] text-[#E67E22] font-semibold"
+              : "text-[#D6D9DD] hover:bg-[#2A3138]"
+          }`}
+        >
+          <IconConfig class="h-5 w-5 shrink-0" />
+          <span>Listas de Seguridad</span>
+        </a>
+        <a
+          href="/dashboard/configuracion"
+          data-nav-id="config"
+          data-rbac-perm="configuration.manage"
+          class={`flex items-center gap-3.5 px-3.5 py-2 rounded-lg text-sm transition-colors ${
+            currentPath.startsWith("/dashboard/configuracion")
+              ? "bg-[#2A3138] text-[#E67E22] font-semibold"
+              : "text-[#D6D9DD] hover:bg-[#2A3138]"
+          }`}
+        >
+          <IconConfig class="h-5 w-5 shrink-0" />
+          <span>Configuración</span>
+        </a>
+      </div>
+    </div>
   </nav>
 
   <!-- Cerrar sesión -->
@@ -112,16 +279,15 @@ const currentPath = normalize(Astro.url.pathname);
     <button
       type="button"
       data-sidebar-logout
-      class="w-full flex items-center gap-4 px-4 py-2.5 rounded-lg text-[16px] text-[#D6D9DD]
-             hover:bg-[#2A3138] transition-colors text-left"
+      class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg text-sm text-[#D6D9DD] hover:bg-[#2A3138] transition-colors text-left"
     >
       <img
-        src={bottomItem.icon}
-        alt={bottomItem.label}
-        class="h-6 w-6 shrink-0"
+        src="/svg/nav-logout.svg"
+        alt="Cerrar Sesión"
+        class="h-5 w-5 shrink-0"
         loading="lazy"
       />
-      <span>{bottomItem.label}</span>
+      <span>Cerrar Sesión</span>
     </button>
   </div>
 </aside>
@@ -145,9 +311,26 @@ const currentPath = normalize(Astro.url.pathname);
   applySidebarPermissions();
   window.addEventListener("sentinelx:auth-changed", applySidebarPermissions);
 
+  // Toggle Menú Administración
+  const toggleBtn = document.querySelector("[data-sidebar-toggle-admin]");
+  const adminMenu = document.querySelector("[data-sidebar-admin-menu]");
+  const arrow = document.querySelector("[data-sidebar-admin-arrow]");
+
+  toggleBtn?.addEventListener("click", () => {
+    if (adminMenu) {
+      const isHidden = adminMenu.classList.toggle("hidden");
+      if (arrow) {
+        if (isHidden) {
+          arrow.classList.remove("rotate-180");
+        } else {
+          arrow.classList.add("rotate-180");
+        }
+      }
+    }
+  });
+
   const logoutBtn = document.querySelector("[data-sidebar-logout]");
   logoutBtn?.addEventListener("click", () => {
     logout();
   });
 </script>
-

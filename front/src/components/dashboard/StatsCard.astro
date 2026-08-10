@@ -11,26 +11,27 @@ const { label, value, helper, statKey } = Astro.props;
 ---
 
 <div
-  class="rounded-xl bg-white border border-[#E5E7EB] p-4 flex flex-col gap-1 shadow-sm"
+  class="rounded-xl bg-white border border-[#E5E7EB] p-5 flex flex-col justify-between h-full shadow-sm gap-2"
   data-stat-key={statKey || ""}
 >
   <span
-    class="text-xs font-medium text-[#6B7280] uppercase tracking-wide"
+    class="text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider truncate"
     data-stat-label
   >
     {label}
   </span>
 
   <span
-    class="text-2xl font-semibold text-[#111827]"
+    class="text-2xl font-bold text-[#111827] tracking-tight my-0.5"
     data-stat-value
   >
     {value}
   </span>
 
   {helper && (
-    <span class="text-xs text-[#9CA3AF]" data-stat-helper>
+    <span class="text-[11px] text-[#9CA3AF] font-normal" data-stat-helper>
       {helper}
     </span>
   )}
 </div>
+

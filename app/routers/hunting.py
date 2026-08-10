@@ -70,14 +70,45 @@ def search_events(
             time_range["lte"] = end_date
         extra_filters.append({"range": {"@timestamp": time_range}})
 
+    # Detectar si es búsqueda exacta por _id o event.id
+    exact_event_id: Optional[str] = None  # ID exacto para filtrado en fallback
+
+    # Build the full OpenSearch query body
+    bool_clause: Dict[str, Any] = {"filter": extra_filters if extra_filters else []}
+    if q:
+        q_clean = q.strip()
+        if q_clean.startswith("_id:"):
+            # Búsqueda exacta por OpenSearch system _id
+            target_id = q_clean.split("_id:", 1)[1].strip()
+            exact_event_id = target_id
+            bool_clause["filter"] = bool_clause.get("filter", [])
+            bool_clause["filter"] = (bool_clause["filter"] if isinstance(bool_clause["filter"], list) else [bool_clause["filter"]]) + [{"ids": {"values": [target_id]}}]
+        elif q_clean.startswith("event.id:"):
+            # Búsqueda exacta por campo ECS event.id
+            target_event_id = q_clean.split("event.id:", 1)[1].strip()
+            exact_event_id = target_event_id
+            bool_clause["filter"] = bool_clause.get("filter", [])
+            bool_clause["filter"] = (bool_clause["filter"] if isinstance(bool_clause["filter"], list) else [bool_clause["filter"]]) + [
+                {"bool": {"should": [
+                    {"term": {"event.id": target_event_id}},
+                    {"term": {"event.id.keyword": target_event_id}},
+                ], "minimum_should_match": 1}}
+            ]
+        else:
+            bool_clause["must"] = [{"query_string": {"query": q_clean}}]
+
+    query_body: Dict[str, Any] = {
+        "query": {"bool": bool_clause},
+        "from": offset,
+        "size": limit,
+        "sort": [{"@timestamp": {"order": "desc"}}],
+    }
+
     try:
         client = OpenSearchClient.get_instance()
         results = client.search_events(
+            query_body=query_body,
             tenant_id=ctx.tenant_id,
-            query=q,
-            filters=extra_filters if extra_filters else None,
-            from_=offset,
-            size=limit,
         )
 
         took_ms = round((time.time() - start_time) * 1000, 2)
@@ -101,51 +132,73 @@ def search_events(
     except Exception as e:
         took_ms = round((time.time() - start_time) * 1000, 2)
         # Fallback de desarrollo si OpenSearch no está corriendo localmente
+        # Catálogo completo de eventos mock
+        all_mock_events: List[Dict[str, Any]] = [
+            {
+                "_id": "evt-mock-001",
+                "event": {"id": "evt-mock-001", "dataset": dataset or "exim.mainlog", "severity": severity or "high", "type": ["access", "authentication"]},
+                "@timestamp": datetime.now(timezone.utc).isoformat(),
+                "tenant": {"id": ctx.tenant_id},
+                "source": {"ip": source_ip or "192.168.1.100"},
+                "destination": {"ip": destination_ip or "10.0.0.1"},
+                "host": {"name": hostname or "srv-cpanel-01.hosting.com"},
+                "user": {"name": username or "admin"},
+                "sentinelx": {"parser": parser or "exim", "evidence_key": f"{ctx.tenant_id}/2026/08/10/exim/evt-mock-001.raw.gz"},
+                "rule": {"id": rule_id or "RULE_MAIL_SMTP_AUTH_BRUTEFORCE", "name": "Exim SMTP Bruteforce Detected"},
+            },
+            {
+                "_id": "evt-mock-002",
+                "event": {"id": "evt-mock-002", "dataset": dataset or "imunify360.audit", "severity": severity or "critical", "type": ["malware"]},
+                "@timestamp": datetime.now(timezone.utc).isoformat(),
+                "tenant": {"id": ctx.tenant_id},
+                "source": {"ip": source_ip or "203.0.113.50"},
+                "destination": {"ip": destination_ip or "10.0.0.2"},
+                "host": {"name": hostname or "srv-web-03.hosting.com"},
+                "user": {"name": username or "nobody"},
+                "sentinelx": {"parser": parser or "imunify360", "evidence_key": f"{ctx.tenant_id}/2026/08/10/imunify360/evt-mock-002.raw.gz"},
+                "rule": {"id": rule_id or "RULE_WEB_WEBSHELL_DETECTED", "name": "Imunify360 Webshell Upload Detected"},
+            },
+            {
+                "_id": "evt-mock-003",
+                "event": {"id": "evt-mock-003", "dataset": dataset or "auditd.log", "severity": severity or "medium", "type": ["process_creation"]},
+                "@timestamp": datetime.now(timezone.utc).isoformat(),
+                "tenant": {"id": ctx.tenant_id},
+                "source": {"ip": source_ip or "198.51.100.12"},
+                "destination": {"ip": destination_ip or "10.0.0.5"},
+                "host": {"name": hostname or "srv-exim-02.hosting.com"},
+                "user": {"name": username or "root"},
+                "sentinelx": {"parser": parser or "auditd", "evidence_key": f"{ctx.tenant_id}/2026/08/10/auditd/evt-mock-003.raw.gz"},
+                "rule": {"id": rule_id or "RULE_SYS_UNAUTHORIZED_SUDO", "name": "Auditd Unauthorized Sudo Attempt"},
+            },
+        ]
+
+        # Si hay búsqueda exacta por event_id, devolver SOLO ese evento
+        if exact_event_id:
+            filtered = [ev for ev in all_mock_events if ev.get("_id") == exact_event_id or ev.get("event", {}).get("id") == exact_event_id]
+            # Si el evento no está en el mock, devolver un evento genérico con ese ID para que el frontend muestre el resultado correcto
+            if not filtered:
+                filtered = [{
+                    "_id": exact_event_id,
+                    "event": {"id": exact_event_id, "dataset": "sentinelx.event", "severity": "high"},
+                    "@timestamp": datetime.now(timezone.utc).isoformat(),
+                    "tenant": {"id": ctx.tenant_id},
+                    "source": {"ip": "0.0.0.0"},
+                    "host": {"name": "unknown"},
+                    "sentinelx": {"parser": "unknown"},
+                    "rule": {"id": "UNKNOWN", "name": "Event from linked alert"},
+                }]
+            mock_events = filtered
+        else:
+            mock_events = all_mock_events
+
         return {
             "took_ms": took_ms,
-            "total": 3,
+            "total": len(mock_events),
             "limit": limit,
             "offset": offset,
             "tenant_id": ctx.tenant_id,
             "warning": f"OpenSearch no disponible ({str(e)}). Mostrando resultados mock de desarrollo.",
-            "events": [
-                {
-                    "_id": "evt-mock-001",
-                    "@timestamp": datetime.now(timezone.utc).isoformat(),
-                    "tenant": {"id": ctx.tenant_id},
-                    "event": {"dataset": dataset or "exim.mainlog", "severity": severity or "high", "type": ["access", "authentication"]},
-                    "source": {"ip": source_ip or "192.168.1.100"},
-                    "destination": {"ip": destination_ip or "10.0.0.1"},
-                    "host": {"name": hostname or "srv-cpanel-01.hosting.com"},
-                    "user": {"name": username or "admin"},
-                    "sentinelx": {"parser": parser or "exim", "evidence_key": f"{ctx.tenant_id}/2026/08/10/exim/evt-mock-001.raw.gz"},
-                    "rule": {"id": rule_id or "RULE_MAIL_SMTP_AUTH_BRUTEFORCE", "name": "Exim SMTP Bruteforce Detected"},
-                },
-                {
-                    "_id": "evt-mock-002",
-                    "@timestamp": datetime.now(timezone.utc).isoformat(),
-                    "tenant": {"id": ctx.tenant_id},
-                    "event": {"dataset": dataset or "imunify360.audit", "severity": severity or "critical", "type": ["malware"]},
-                    "source": {"ip": source_ip or "203.0.113.50"},
-                    "destination": {"ip": destination_ip or "10.0.0.2"},
-                    "host": {"name": hostname or "srv-web-03.hosting.com"},
-                    "user": {"name": username or "nobody"},
-                    "sentinelx": {"parser": parser or "imunify360", "evidence_key": f"{ctx.tenant_id}/2026/08/10/imunify360/evt-mock-002.raw.gz"},
-                    "rule": {"id": rule_id or "RULE_WEB_WEBSHELL_DETECTED", "name": "Imunify360 Webshell Upload Detected"},
-                },
-                {
-                    "_id": "evt-mock-003",
-                    "@timestamp": datetime.now(timezone.utc).isoformat(),
-                    "tenant": {"id": ctx.tenant_id},
-                    "event": {"dataset": dataset or "auditd.log", "severity": severity or "medium", "type": ["process_creation"]},
-                    "source": {"ip": source_ip or "198.51.100.12"},
-                    "destination": {"ip": destination_ip or "10.0.0.5"},
-                    "host": {"name": hostname or "srv-exim-02.hosting.com"},
-                    "user": {"name": username or "root"},
-                    "sentinelx": {"parser": parser or "auditd", "evidence_key": f"{ctx.tenant_id}/2026/08/10/auditd/evt-mock-003.raw.gz"},
-                    "rule": {"id": rule_id or "RULE_SYS_UNAUTHORIZED_SUDO", "name": "Auditd Unauthorized Sudo Attempt"},
-                },
-            ],
+            "events": mock_events,
         }
 
 

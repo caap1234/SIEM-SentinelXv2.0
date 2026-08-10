@@ -28,13 +28,15 @@ def utc_now() -> datetime:
 
 def _status_ui_to_db(status: str) -> str:
     """
-    UI: open/resolved/false_positive
-    DB: open/triage/contained/closed/false_positive
+    UI: new/open | in_investigation | resolved | false_positive | closed_by_incident
+    DB: open | in_investigation | closed | false_positive | closed_by_incident
     """
     s = (status or "").strip().lower()
-    if s == "resolved":
+    if s in ("resolved", "closed"):
         return "closed"
-    if s in ("open", "triage", "contained", "closed", "false_positive"):
+    if s in ("new", "open"):
+        return "open"
+    if s in ("in_investigation", "false_positive", "closed_by_incident"):
         return s
     return "open"
 
@@ -43,11 +45,10 @@ def _status_db_to_ui(status: str) -> str:
     s = (status or "").strip().lower()
     if s == "closed":
         return "resolved"
-    if s in ("open", "false_positive"):
+    if s in ("open", "in_investigation", "false_positive", "closed_by_incident"):
         return s
-    if s in ("triage", "contained"):
-        return "open"
     return "open"
+
 
 
 # ✅ Severity buckets for Alert score 0..30 (based on your rules)
@@ -270,8 +271,11 @@ class AlertDetailResponse(BaseModel):
     evidence: Dict[str, Any] = Field(default_factory=dict)
 
     ip: Optional[str] = None
+    opensearch_event_id: Optional[str] = None
+    s3_key: Optional[str] = None
 
     raw_log_snippet: str = "—"
+
 
 
 class AlertUpdateRequest(BaseModel):
@@ -415,12 +419,17 @@ def get_alert(
         metrics=a.metrics or {},
         evidence=a.evidence or {},
         ip=ip_guess,
+        opensearch_event_id=getattr(a, "opensearch_event_id", None),
+        s3_key=getattr(a, "s3_key", None),
         raw_log_snippet=str(raw)[:6000],
     )
 
 
+
+@router.put("/{alert_id}", response_model=AlertDetailResponse)
 @router.patch("/{alert_id}", response_model=AlertDetailResponse)
 def update_alert(
+
     alert_id: int,
     payload: AlertUpdateRequest,
     db: Session = Depends(get_db),

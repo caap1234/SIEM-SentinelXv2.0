@@ -270,17 +270,27 @@ def run_blacklistmaster_sync() -> Dict[str, Any]:
         "BLACKLISTMASTER_BASE_URL", "https://www.blacklistmaster.com"
     ).strip()
 
-    config_dir = Path(__file__).resolve().parents[1] / "config"
-    shared_path = config_dir / "blacklistmaster_shared.json"
-    pmg_path = config_dir / "blacklistmaster_pmg.json"
-    ignore_path = config_dir / "blacklistmaster_ignore.json"
+    from app.services.security_list_service import SecurityListService
+    svc = SecurityListService.get_instance()
 
-    shared_map = _load_inventory_map(shared_path)
-    pmg_map = _load_inventory_map(pmg_path)
-    ignore = _load_ignore_list(ignore_path)
+    with SessionLocal() as db:
+        shared_map = svc.get_blm_inventory_map("shared", db=db)
+        pmg_map = svc.get_blm_inventory_map("pmg", db=db)
+        ignore = svc.get_blm_ignore_list(db=db)
 
-    client = BlacklistMasterClient(base_url=base_url, api_key=api_key)
-    ips = client.fetch_ipbl()
+        # Fallback a JSON si las listas de la BD están vacías
+        if not shared_map:
+            config_dir = Path(__file__).resolve().parents[1] / "config"
+            shared_map = _load_inventory_map(config_dir / "blacklistmaster_shared.json")
+        if not pmg_map:
+            config_dir = Path(__file__).resolve().parents[1] / "config"
+            pmg_map = _load_inventory_map(config_dir / "blacklistmaster_pmg.json")
+        if not ignore.ips and not ignore.cidrs:
+            config_dir = Path(__file__).resolve().parents[1] / "config"
+            ignore = _load_ignore_list(config_dir / "blacklistmaster_ignore.json")
+
+        client = BlacklistMasterClient(base_url=base_url, api_key=api_key)
+        ips = client.fetch_ipbl()
 
     created = 0
     skipped = 0

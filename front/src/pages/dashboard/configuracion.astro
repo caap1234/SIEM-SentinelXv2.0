@@ -390,92 +390,181 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
       </div>
     </div>
 
-    <!-- EXPORTACIÓN Y LIMPIEZA -->
-    <div class="rounded-xl bg-white border border-[#E5E7EB] shadow-sm overflow-hidden">
-      <div class="px-8 py-4 border-b border-[#E5E7EB]">
-        <h2 class="text-sm font-semibold text-center text-[#111827]">
-          Exportación y limpieza
-        </h2>
+
+    <!-- POLÍTICA DE PRESERVACIÓN DE DATOS (RETENCIÓN) -->
+    <div id="retentionPolicySection" class="rounded-xl bg-white border border-[#E5E7EB] shadow-sm overflow-hidden" data-rbac-gate data-rbac-permission="configuration.manage">
+      <div class="px-8 py-4 border-b border-[#E5E7EB] flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-[#111827]">
+            Política de Preservación de Datos (Retención por Motor)
+          </h2>
+          <p class="text-xs text-[#6B7280] mt-1">
+            Configura el tiempo de vida (TTL) independiente para PostgreSQL, OpenSearch, MinIO S3 y logs temporales.
+          </p>
+        </div>
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EFF6FF] text-[#1D4ED8] text-[11px] font-medium border border-[#BFDBFE]">
+          Separación por Motor
+        </span>
       </div>
 
-      <div class="px-8 py-8 flex flex-col items-center gap-4">
-        <button
-          type="button"
-          id="exportCsvBtn"
-          class="w-full max-w-xs h-16 rounded-xl bg-[#E5E7EB] text-sm font-medium text-[#4B5563]
-                 flex items-center justify-center text-center px-4"
-        >
-          Exportar (ZIP con CSV)
-          <br />
-          Selecciona qué exportar
-        </button>
+      <div class="px-8 py-6 space-y-6">
+        <form id="retentionForm" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <label class="text-[12px] font-semibold text-[#111827]">Uploaded Logs (Archivos)</label>
+              <span class="text-[10px] text-[#6B7280] font-mono">Disco</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <input type="number" id="retentionUploadedLogs" value="30" min="1" max="3650" class="h-9 w-full rounded-md border border-[#D1D5DB] px-3 text-xs font-semibold text-[#111827]" />
+              <span class="text-xs text-[#6B7280]">días</span>
+            </div>
+            <p class="text-[10px] text-[#6B7280]">Archivos de logs subidos pendientes de procesamiento.</p>
+          </div>
 
-        <button
-          type="button"
-          id="cleanUploadedLogsBtn"
-          class="w-full max-w-xs h-16 rounded-xl bg-[#FEE2E2] text-sm font-medium text-[#B91C1C]
-                 flex items-center justify-center text-center px-4"
-        >
-          Limpiar archivos
-          <br />
-          /uploaded_logs
-        </button>
+          <div class="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <label class="text-[12px] font-semibold text-[#111827]">Eventos OpenSearch</label>
+              <span class="text-[10px] text-[#0284C7] font-mono font-semibold">OpenSearch</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <input type="number" id="retentionOpenSearch" value="90" min="1" max="3650" class="h-9 w-full rounded-md border border-[#D1D5DB] px-3 text-xs font-semibold text-[#111827]" />
+              <span class="text-xs text-[#6B7280]">días</span>
+            </div>
+            <p class="text-[10px] text-[#6B7280]">Índices ECS normalizados de eventos históricos.</p>
+          </div>
 
-        <button
-          type="button"
-          id="backupAndWipeDbBtn"
-          class="w-full max-w-xs h-16 rounded-xl bg-[#FEE2E2] text-sm font-medium text-[#B91C1C]
-                 flex items-center justify-center text-center px-4"
-        >
-          Respaldar y limpiar BD
-          <br />
-          (todo, excepto usuarios y API keys)
-        </button>
+          <div class="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <label class="text-[12px] font-semibold text-[#111827]">Alertas PostgreSQL</label>
+              <span class="text-[10px] text-[#7C3AED] font-mono font-semibold">PostgreSQL</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <input type="number" id="retentionAlerts" value="180" min="1" max="3650" class="h-9 w-full rounded-md border border-[#D1D5DB] px-3 text-xs font-semibold text-[#111827]" />
+              <span class="text-xs text-[#6B7280]">días</span>
+            </div>
+            <p class="text-[10px] text-[#6B7280]">Alertas generadas (respeta incidentes abiertos).</p>
+          </div>
 
-        <p class="mt-2 text-[11px] text-center text-[#9CA3AF] max-w-md">
-          Esta acción genera un respaldo ZIP en el servidor y luego borra todos los datos de la BD
-          excepto users y api_keys.
-        </p>
+          <div class="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <label class="text-[12px] font-semibold text-[#111827]">Entidades PostgreSQL</label>
+              <span class="text-[10px] text-[#7C3AED] font-mono font-semibold">PostgreSQL</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <input type="number" id="retentionEntities" value="180" min="1" max="3650" class="h-9 w-full rounded-md border border-[#D1D5DB] px-3 text-xs font-semibold text-[#111827]" />
+              <span class="text-xs text-[#6B7280]">días</span>
+            </div>
+            <p class="text-[10px] text-[#6B7280]">Historial de entidades inactivas sin riesgo.</p>
+          </div>
 
-        <span id="maintenanceStatus" class="text-[12px] text-[#6B7280]"></span>
+          <div class="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <label class="text-[12px] font-semibold text-[#111827]">Incidentes PostgreSQL</label>
+              <span class="text-[10px] text-[#7C3AED] font-mono font-semibold">PostgreSQL</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <input type="number" id="retentionIncidents" value="365" min="1" max="3650" class="h-9 w-full rounded-md border border-[#D1D5DB] px-3 text-xs font-semibold text-[#111827]" />
+              <span class="text-xs text-[#6B7280]">días</span>
+            </div>
+            <p class="text-[10px] text-[#6B7280]">Incidentes resueltos o cerrados definitivamente.</p>
+          </div>
 
-        <!-- ✅ NUEVO: Exports recientes -->
-        <div class="w-full max-w-4xl mt-6 rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-4">
-          <div class="flex items-center justify-between gap-3">
-            <p class="text-[12px] font-semibold text-[#111827]">Exports recientes</p>
-            <button
-              type="button"
-              id="refreshExportsBtn"
-              class="h-9 px-4 rounded-lg border border-[#E5E7EB] bg-white text-[12px] font-semibold hover:bg-[#F9FAFB]"
-            >
-              Actualizar
+          <div class="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <label class="text-[12px] font-semibold text-[#111827]">Evidencia MinIO (S3)</label>
+              <span class="text-[10px] text-[#059669] font-mono font-semibold">MinIO S3</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <input type="number" id="retentionEvidenceS3" value="365" min="1" max="3650" class="h-9 w-full rounded-md border border-[#D1D5DB] px-3 text-xs font-semibold text-[#111827]" />
+              <span class="text-xs text-[#6B7280]">días</span>
+            </div>
+            <p class="text-[10px] text-[#6B7280]">Logs originales comprimidos y hashes SHA-256.</p>
+          </div>
+        </form>
+
+        <div class="flex items-center justify-between gap-3 pt-2 border-t border-[#E5E7EB]">
+          <div class="flex items-center gap-2">
+            <input type="checkbox" id="retentionProtectOpen" checked class="h-4 w-4 rounded border-[#D1D5DB] text-[#F97316] focus:ring-[#F97316]" />
+            <label for="retentionProtectOpen" class="text-xs text-[#111827] font-medium">Proteger evidencias de incidentes abiertos</label>
+          </div>
+
+          <div class="flex gap-2">
+            <button id="saveRetentionBtn" type="button" class="h-9 px-4 rounded-lg border border-[#E5E7EB] bg-white text-xs font-semibold text-[#111827] hover:bg-[#F9FAFB]">
+              Guardar Configuración
+            </button>
+            <button id="previewRetentionBtn" type="button" class="h-9 px-4 rounded-lg bg-[#3B82F6] text-white text-xs font-semibold hover:bg-[#2563EB]">
+              Previsualizar Purga (Dry-Run)
+            </button>
+            <button id="executeRetentionBtn" type="button" class="h-9 px-4 rounded-lg bg-[#DC2626] text-white text-xs font-semibold hover:bg-[#B91C1C]">
+              Ejecutar Purga Manual
             </button>
           </div>
+        </div>
 
-          <div class="mt-3 overflow-x-auto">
-            <table class="w-full text-left text-[12px]">
-              <thead>
-                <tr class="border-b border-[#E5E7EB] text-[#6B7280]">
-                  <th class="py-2 pr-3">Job ID</th>
-                  <th class="py-2 pr-3">Status</th>
-                  <th class="py-2 pr-3">Creado</th>
-                  <th class="py-2 pr-3">Tamaño</th>
-                  <th class="py-2 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody id="exportsTbody">
-                <tr><td colspan="5" class="py-3 text-[#9CA3AF]">Cargando…</td></tr>
-              </tbody>
-            </table>
-          </div>
-
-          <p class="mt-2 text-[11px] text-[#9CA3AF]">
-            Nota: “Descargar” solo aparece cuando el status es <b>done</b>.
-          </p>
+        <div id="retentionSummaryBox" class="hidden rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] p-4 text-xs">
+          <p id="retentionSummaryTitle" class="font-semibold text-[#1E40AF]"></p>
+          <div id="retentionSummaryContent" class="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-[#1E3A8A]"></div>
         </div>
       </div>
     </div>
+
+    <!-- SECCIÓN DE LIMPIEZA FORZADA SIN RESPALDO -->
+    <div id="forcedPurgeSection" class="rounded-xl bg-white border border-[#FCA5A5] shadow-sm overflow-hidden" data-rbac-gate data-rbac-permission="configuration.manage">
+      <div class="px-8 py-4 border-b border-[#FCA5A5] bg-[#FEF2F2] flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-[#991B1B]">
+            Zona de Limpieza Forzada Sin Respaldo (Operación Destructiva)
+          </h2>
+          <p class="text-xs text-[#7F1D1D] mt-0.5">
+            Eliminación directa de registros seleccionados sin crear archivo de respaldo previo.
+          </p>
+        </div>
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#FEE2E2] text-[#991B1B] text-[11px] font-bold border border-[#FCA5A5]">
+          Acción Crítica
+        </span>
+      </div>
+
+      <div class="px-8 py-6 space-y-4">
+        <p class="text-xs text-[#6B7280]">
+          Selecciona las categorías que deseas depurar directamente. Se requiere confirmación explicita antes de la ejecución.
+        </p>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+          <label class="flex items-center gap-2 p-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] cursor-pointer hover:bg-white">
+            <input type="checkbox" data-purge-category value="alerts" checked class="h-4 w-4 text-[#DC2626]" />
+            <span>Alertas PostgreSQL</span>
+          </label>
+          <label class="flex items-center gap-2 p-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] cursor-pointer hover:bg-white">
+            <input type="checkbox" data-purge-category value="incidents" checked class="h-4 w-4 text-[#DC2626]" />
+            <span>Incidentes PostgreSQL</span>
+          </label>
+          <label class="flex items-center gap-2 p-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] cursor-pointer hover:bg-white">
+            <input type="checkbox" data-purge-category value="entities" checked class="h-4 w-4 text-[#DC2626]" />
+            <span>Entidades PostgreSQL</span>
+          </label>
+          <label class="flex items-center gap-2 p-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] cursor-pointer hover:bg-white">
+            <input type="checkbox" data-purge-category value="uploaded_logs" checked class="h-4 w-4 text-[#DC2626]" />
+            <span>Uploaded Logs (Archivos)</span>
+          </label>
+        </div>
+
+        <div class="flex items-center justify-between gap-3 pt-3 border-t border-[#E5E7EB]">
+          <span id="forcedPurgeStatus" class="text-xs text-[#6B7280]"></span>
+          <div class="flex gap-2">
+            <button id="previewPurgeBtn" type="button" class="h-9 px-4 rounded-lg border border-[#D1D5DB] bg-white text-xs font-semibold text-[#374151] hover:bg-[#F3F4F6]">
+              Previsualizar Registros Afiliados (Dry Run)
+            </button>
+            <button id="executeForcedPurgeBtn" type="button" class="h-9 px-4 rounded-lg bg-[#991B1B] text-white text-xs font-bold hover:bg-[#7F1D1D]">
+              Forzar Limpieza Sin Respaldo
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
   </section>
+
 
   <!-- ✅ MODAL EXPORT -->
   <div
@@ -1758,12 +1847,188 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
     });
 
     // -------------------------
+    // POLÍTICA DE RETENCIÓN & PURGA
+    // -------------------------
+    const retentionUploadedLogs = document.getElementById("retentionUploadedLogs");
+    const retentionOpenSearch = document.getElementById("retentionOpenSearch");
+    const retentionAlerts = document.getElementById("retentionAlerts");
+    const retentionEntities = document.getElementById("retentionEntities");
+    const retentionIncidents = document.getElementById("retentionIncidents");
+    const retentionEvidenceS3 = document.getElementById("retentionEvidenceS3");
+    const retentionProtectOpen = document.getElementById("retentionProtectOpen");
+
+    const saveRetentionBtn = document.getElementById("saveRetentionBtn");
+    const previewRetentionBtn = document.getElementById("previewRetentionBtn");
+    const executeRetentionBtn = document.getElementById("executeRetentionBtn");
+    const retentionSummaryBox = document.getElementById("retentionSummaryBox");
+    const retentionSummaryTitle = document.getElementById("retentionSummaryTitle");
+    const retentionSummaryContent = document.getElementById("retentionSummaryContent");
+
+    const forcedPurgeStatus = document.getElementById("forcedPurgeStatus");
+    const previewPurgeBtn = document.getElementById("previewPurgeBtn");
+    const executeForcedPurgeBtn = document.getElementById("executeForcedPurgeBtn");
+
+    async function loadRetentionPolicy() {
+      try {
+        const res = await fetch(`${API_BASE}/settings/retention`, { headers: authHeaders() });
+        if (res.ok) {
+          const cfg = await res.json();
+          if (retentionUploadedLogs) retentionUploadedLogs.value = cfg.retention_uploaded_logs_days || 30;
+          if (retentionOpenSearch) retentionOpenSearch.value = cfg.retention_opensearch_events_days || 90;
+          if (retentionAlerts) retentionAlerts.value = cfg.retention_alerts_days || 180;
+          if (retentionEntities) retentionEntities.value = cfg.retention_entities_days || 180;
+          if (retentionIncidents) retentionIncidents.value = cfg.retention_incidents_days || 365;
+          if (retentionEvidenceS3) retentionEvidenceS3.value = cfg.retention_evidence_s3_days || 365;
+          if (retentionProtectOpen) retentionProtectOpen.checked = cfg.protect_open_incidents !== false;
+        }
+      } catch (e) {
+        console.error("Error al cargar política de retención:", e);
+      }
+    }
+
+    function getRetentionPayload() {
+      return {
+        retention_uploaded_logs_days: parseInt(retentionUploadedLogs?.value || "30", 10),
+        retention_opensearch_events_days: parseInt(retentionOpenSearch?.value || "90", 10),
+        retention_alerts_days: parseInt(retentionAlerts?.value || "180", 10),
+        retention_entities_days: parseInt(retentionEntities?.value || "180", 10),
+        retention_incidents_days: parseInt(retentionIncidents?.value || "365", 10),
+        retention_evidence_s3_days: parseInt(retentionEvidenceS3?.value || "365", 10),
+        protect_open_incidents: retentionProtectOpen?.checked !== false,
+      };
+    }
+
+    saveRetentionBtn?.addEventListener("click", async () => {
+      try {
+        saveRetentionBtn.disabled = true;
+        const res = await fetch(`${API_BASE}/settings/retention`, {
+          method: "PUT",
+          headers: authHeaders(),
+          body: JSON.stringify(getRetentionPayload()),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        alert("Política de preservación guardada correctamente.");
+      } catch (e) {
+        console.error(e);
+        alert("Error al guardar política de preservación.");
+      } finally {
+        saveRetentionBtn.disabled = false;
+      }
+    });
+
+    previewRetentionBtn?.addEventListener("click", async () => {
+      try {
+        previewRetentionBtn.disabled = true;
+        const res = await fetch(`${API_BASE}/settings/retention/preview`, {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify(getRetentionPayload()),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const summary = await res.json();
+        renderPurgeSummary("Previsualización de Purga (Dry-Run)", summary);
+      } catch (e) {
+        console.error(e);
+        alert("Error al obtener vista previa de purga.");
+      } finally {
+        previewRetentionBtn.disabled = false;
+      }
+    });
+
+    executeRetentionBtn?.addEventListener("click", async () => {
+      if (!confirm("¿Ejecutar la purga manual según la política configurada?")) return;
+      try {
+        executeRetentionBtn.disabled = true;
+        const res = await fetch(`${API_BASE}/settings/retention/execute`, {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify(getRetentionPayload()),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const summary = await res.json();
+        renderPurgeSummary("Purga por Retención Ejecutada", summary);
+      } catch (e) {
+        console.error(e);
+        alert("Error al ejecutar purga manual.");
+      } finally {
+        executeRetentionBtn.disabled = false;
+      }
+    });
+
+    function renderPurgeSummary(title, s) {
+      if (!retentionSummaryBox || !retentionSummaryTitle || !retentionSummaryContent) return;
+      retentionSummaryTitle.textContent = title;
+      retentionSummaryContent.innerHTML = `
+        <div>Uploaded Logs: <strong>${s.purged_uploaded_logs || 0}</strong></div>
+        <div>OpenSearch Eventos: <strong>${s.purged_opensearch_events || 0}</strong></div>
+        <div>Alertas PostgreSQL: <strong>${s.purged_alerts || 0}</strong></div>
+        <div>Entidades PostgreSQL: <strong>${s.purged_entities || 0}</strong></div>
+        <div>Incidentes PostgreSQL: <strong>${s.purged_incidents || 0}</strong></div>
+        <div>Evidencias MinIO S3: <strong>${s.purged_evidence_s3 || 0}</strong></div>
+      `;
+      retentionSummaryBox.classList.remove("hidden");
+    }
+
+    // Purga forzada sin respaldo
+    previewPurgeBtn?.addEventListener("click", async () => {
+      const cats = Array.from(document.querySelectorAll("[data-purge-category]:checked")).map((el) => el.value);
+      if (!cats.length) {
+        if (forcedPurgeStatus) forcedPurgeStatus.textContent = "Selecciona al menos una categoría.";
+        return;
+      }
+      if (forcedPurgeStatus) forcedPurgeStatus.textContent = "Obteniendo estimación…";
+      try {
+        const res = await fetch(`${API_BASE}/admin/maintenance/purge-db`, {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({ dry_run: true, confirm: false, categories: cats }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        const est = data.estimates || {};
+        if (forcedPurgeStatus) {
+          forcedPurgeStatus.textContent = `Registros a depurar: Alertas(${est.alerts||0}), Incidentes(${est.incidents||0}), Entidades(${est.entities||0}), Logs(${est.uploaded_logs||0})`;
+        }
+      } catch (e) {
+        console.error(e);
+        if (forcedPurgeStatus) forcedPurgeStatus.textContent = "Error al previsualizar.";
+      }
+    });
+
+    executeForcedPurgeBtn?.addEventListener("click", async () => {
+      const cats = Array.from(document.querySelectorAll("[data-purge-category]:checked")).map((el) => el.value);
+      if (!cats.length) {
+        alert("Selecciona al menos una categoría.");
+        return;
+      }
+      if (!confirm("¿Confirmas eliminar PERMANENTEMENTE los registros seleccionados SIN respaldo?")) return;
+      if (forcedPurgeStatus) forcedPurgeStatus.textContent = "Ejecutando limpieza forzada…";
+      try {
+        const res = await fetch(`${API_BASE}/admin/maintenance/purge-db`, {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({ dry_run: false, confirm: true, categories: cats }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        const deleted = data.deleted || {};
+        if (forcedPurgeStatus) {
+          forcedPurgeStatus.textContent = `Limpieza completada: Alertas(${deleted.alerts||0}), Incidentes(${deleted.incidents||0}), Entidades(${deleted.entities||0}), Logs(${deleted.uploaded_logs||0})`;
+        }
+      } catch (e) {
+        console.error(e);
+        if (forcedPurgeStatus) forcedPurgeStatus.textContent = "Error al ejecutar limpieza forzada.";
+      }
+    });
+
+    // -------------------------
     // Inicial
     // -------------------------
     await loadMe();
     await loadPrefs();
     await loadAlertSettings();
     await loadUsers();
-    await loadExports();
+    await loadRetentionPolicy();
   </script>
 </DashboardLayout>
+

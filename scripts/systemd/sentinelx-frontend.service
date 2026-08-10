@@ -1,0 +1,21 @@
+[Unit]
+Description=SentinelX SIEM - Astro Web Frontend Service
+After=network.target sentinelx-api.service
+Wants=sentinelx-api.service
+
+[Service]
+Type=simple
+User=sentinelx
+Group=sentinelx
+WorkingDirectory=/opt/sentinelx/front
+EnvironmentFile=/opt/sentinelx/.env
+ExecStart=/usr/bin/node dist/server/entry.mjs
+Restart=always
+RestartSec=5s
+Environment=HOST=0.0.0.0
+Environment=PORT=4321
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

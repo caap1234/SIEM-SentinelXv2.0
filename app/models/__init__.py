@@ -22,7 +22,8 @@ from app.models.incident_rule import IncidentRule
 from app.models.incident import Incident
 from app.models.service_checkpoint import ServiceCheckpoint
 from app.models.rule_v2 import RuleV2
-from app.models.user_setting import UserSetting
+from app.models.report import Report
+from app.models.security_list import SecurityListEntry, SecurityListAudit, SecurityListIgnoreLog
 
 
 __all__ = [
@@ -51,4 +52,9 @@ __all__ = [
     "Incident",
     "ServiceCheckpoint",
     "UserSetting",
+    "Report",
+    "SecurityListEntry",
+    "SecurityListAudit",
+    "SecurityListIgnoreLog",
 ]
+

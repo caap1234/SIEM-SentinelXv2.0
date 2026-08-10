@@ -9,7 +9,8 @@ from app.db import Base
 class Incident(Base):
     __tablename__ = "incidents"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
 
     code = Column(String(64), nullable=False)           # INC-ACC-01
     name = Column(String(255), nullable=False)
