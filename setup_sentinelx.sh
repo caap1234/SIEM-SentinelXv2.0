@@ -428,7 +428,21 @@ ENGINE_WORKERS="${REC_ENGINE}"
 FRONT_DEPLOY_PATH=""
 PUBLIC_API_URL="https://api.sentinelx.tokyo-03.com"
 
+INITIAL_ADMIN_EMAIL="admin@sentinelx.local"
+INITIAL_ADMIN_PASSWORD=""
+INITIAL_ADMIN_FULL_NAME="SentinelX Admin"
+
 if [[ "${DEPLOY_MODE}" != "3" ]]; then
+  echo
+  echo "Configuración del Administrador Inicial del SIEM:"
+  prompt INITIAL_ADMIN_EMAIL "Correo electrónico del Administrador Inicial" "admin@sentinelx.local" 0 0
+  prompt INITIAL_ADMIN_PASSWORD "Contraseña del Administrador Inicial (vacío para autogenerar)" "" 1 1
+  if [[ -z "${INITIAL_ADMIN_PASSWORD}" ]]; then
+    INITIAL_ADMIN_PASSWORD="$(gen_password)"
+    log_info "Contraseña de Administrador autogenerada."
+  fi
+  prompt INITIAL_ADMIN_FULL_NAME "Nombre del Administrador" "SentinelX Admin" 0 0
+
   echo
   echo "Configuración de Dominio & API Backend:"
   prompt PUBLIC_API_URL "URL pública o dominio de la API Backend (ej: https://api.sentinelx.tokyo-03.com)" "${PUBLIC_API_URL}" 0 0
@@ -464,9 +478,9 @@ if [[ ! -f "${ENV_FILE}" || "${DEPLOY_MODE}" == "3" ]]; then
   DATABASE_URL="postgresql://${POSTGRES_USER}:${DB_PASS_URLENC}@localhost:5432/${POSTGRES_DB}"
 
   SECRET_KEY="$(gen_secret_key)"
-  INITIAL_ADMIN_EMAIL="admin@sentinelx.local"
-  INITIAL_ADMIN_PASSWORD="$(gen_password)"
-  INITIAL_ADMIN_FULL_NAME="SentinelX Admin"
+  [[ -n "${INITIAL_ADMIN_EMAIL:-}" ]] || INITIAL_ADMIN_EMAIL="admin@sentinelx.local"
+  [[ -n "${INITIAL_ADMIN_PASSWORD:-}" ]] || INITIAL_ADMIN_PASSWORD="$(gen_password)"
+  [[ -n "${INITIAL_ADMIN_FULL_NAME:-}" ]] || INITIAL_ADMIN_FULL_NAME="SentinelX Admin"
 
   cat > "${ENV_FILE}" <<EOF
 # SentinelX SIEM - Configuración de Entorno Generada Automáticamente
