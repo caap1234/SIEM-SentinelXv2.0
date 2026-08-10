@@ -2,8 +2,8 @@
 import DashboardLayout from "../../layouts/DashboardLayout.astro";
 import HeaderBar from "../../components/dashboard/HeaderBar.astro";
 
-const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
 ---
+
 
 <DashboardLayout pageTitle="SentinelX SIEM – Alertas">
   <HeaderBar
@@ -435,15 +435,13 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
     </div>
   </div>
 
-  <script type="module" define:vars={{ API_BASE }}>
-    // @ts-ignore
-    const TOKEN = window.SENTINELX_TOKEN || null;
+  <script>
+    // @ts-nocheck
+    import { apiGet, apiPost, apiPut } from "../../lib/api.js";
+
+
     const LIMIT = 50;
 
-    const authHeaders = () =>
-      TOKEN
-        ? { Authorization: `Bearer ${TOKEN}`, Accept: "application/json", "Content-Type": "application/json" }
-        : { Accept: "application/json", "Content-Type": "application/json" };
 
     const STATUS_LABEL = {
       open: "Pendiente",
@@ -652,16 +650,12 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
       // Preferimos tu endpoint real si existe: /alerts/servers
       // Si falla, caemos a /data/servers.json
       try {
-        const resApi = await fetch(`${API_BASE}/alerts/servers`, { headers: authHeaders() });
-        if (resApi.ok) {
-          const data = await resApi.json();
-          SERVER_LIST = Array.isArray(data)
-            ? data.map((x) => ({ id: String(x.id || x.label || "").trim(), label: String(x.label || x.id || "").trim() })).filter((x) => x.id)
-            : [];
-        } else {
-          throw new Error("fallback to json");
-        }
+        const data = await apiGet("/alerts/servers");
+        SERVER_LIST = Array.isArray(data)
+          ? data.map((x) => ({ id: String(x.id || x.label || "").trim(), label: String(x.label || x.id || "").trim() })).filter((x) => x.id)
+          : [];
       } catch {
+
         try {
           const res = await fetch("/data/servers.json", { cache: "no-store" });
           if (!res.ok) return;
@@ -788,19 +782,14 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
         ? { ...base, select_all: true, ...collectCurrentFiltersForBulk() }
         : { ...base, select_all: false, ids: Array.from(selectedIds).map((x) => Number(x)) };
 
-      const res = await fetch(`${API_BASE}/alerts/status/bulk`, {
-        method: "PATCH",
-        headers: authHeaders(),
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        console.error("Error bulk update:", await res.text());
-        return;
+      try {
+        await apiPost("/alerts/status/bulk", body);
+        clearSelection();
+        await load();
+      } catch (err) {
+        console.error("Error bulk update:", err);
       }
 
-      clearSelection();
-      await load();
     };
 
     const severityBucketFromLevel = (lvl) => {
@@ -979,29 +968,27 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
     // Load
     const load = async () => {
       const params = buildApiParams();
-      const res = await fetch(`${API_BASE}/alerts?${params.toString()}`, { headers: authHeaders() });
+      try {
+        const queryObj = Object.fromEntries(params.entries());
+        const data = await apiGet("/alerts", queryObj);
+        const items = Array.isArray(data.items) ? data.items : [];
 
-      if (!res.ok) {
-        console.error("Error cargando /alerts:", await res.text());
-        return;
+        state.total = Number(data.total || 0);
+        state.pages = Math.max(1, Math.ceil(state.total / LIMIT));
+
+        renderRows(items);
+        renderHeader();
+        renderPagination();
+        updateBulkUI();
+      } catch (err) {
+        console.error("Error cargando /alerts:", err);
       }
-
-      const data = await res.json();
-      const items = Array.isArray(data.items) ? data.items : [];
-
-      state.total = Number(data.total || 0);
-      state.pages = Math.max(1, Math.ceil(state.total / LIMIT));
-
-      renderRows(items);
-      renderHeader();
-      renderPagination();
-      updateBulkUI();
     };
 
     // Modal
-    let currentModalEventId = null;
+    let currentModalEventId: string | number | null = null;
 
-    const openEventModal = async (eventId) => {
+    const openEventModal = async (eventId: any) => {
       if (!modal) return;
 
       currentModalEventId = eventId;
@@ -1037,43 +1024,41 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
 
       if (saveBtn instanceof HTMLButtonElement) saveBtn.disabled = true;
 
-      const res = await fetch(`${API_BASE}/alerts/${encodeURIComponent(eventId)}`, { headers: authHeaders() });
-      if (!res.ok) {
-        console.error("Error /alerts/{id}:", await res.text());
+      try {
+        const d = await apiGet(`/alerts/${encodeURIComponent(eventId)}`);
+
+        if (tsEl) tsEl.textContent = fmtLocal(d.timestamp_utc || d.timestamp_local || d.timestamp || "—");
+        if (serverEl) serverEl.textContent = d.server || "—";
+        if (ipEl) ipEl.textContent = d.ip || "—";
+
+        const ruleTxt = `${d.rule_id || ""}${d.rule_name ? " – " + d.rule_name : ""}`.trim();
+        if (ruleEl) ruleEl.textContent = ruleTxt || d.rule_name || "—";
+
+        if (sevEl) sevEl.textContent = d.severity_label || d.severityLabel || "—";
+
+        const currentStatus = String(d.status || "open");
+        if (statusTextEl) statusTextEl.textContent = STATUS_LABEL[currentStatus] || currentStatus;
+
+        if (msgEl) msgEl.textContent = d.group_key || "—";
+
+        const rawText = String(d.raw_log_snippet || "—");
+        const MAX_LINES = 80;
+
+        const lines = rawText.split(/\r?\n/);
+        const clipped = lines.slice(0, MAX_LINES).join("\n");
+        const suffix = lines.length > MAX_LINES ? "\n\n… (recortado)" : "";
+
+        if (rawEl) rawEl.textContent = clipped + suffix;
+
+        if (statusSel instanceof HTMLSelectElement) statusSel.value = currentStatus;
+        if (dispSel instanceof HTMLSelectElement) dispSel.value = String(d.disposition || "");
+        if (noteTa instanceof HTMLTextAreaElement) noteTa.value = String(d.note || "");
+
+        if (saveBtn instanceof HTMLButtonElement) saveBtn.disabled = false;
+      } catch (err) {
+        console.error("Error /alerts/{id}:", err);
         if (tsEl) tsEl.textContent = "Error al cargar detalle";
-        return;
       }
-
-      const d = await res.json();
-
-      if (tsEl) tsEl.textContent = fmtLocal(d.timestamp_utc || d.timestamp_local || d.timestamp || "—");
-      if (serverEl) serverEl.textContent = d.server || "—";
-      if (ipEl) ipEl.textContent = d.ip || "—";
-
-      const ruleTxt = `${d.rule_id || ""}${d.rule_name ? " – " + d.rule_name : ""}`.trim();
-      if (ruleEl) ruleEl.textContent = ruleTxt || d.rule_name || "—";
-
-      if (sevEl) sevEl.textContent = d.severity_label || d.severityLabel || "—";
-
-      const currentStatus = String(d.status || "open");
-      if (statusTextEl) statusTextEl.textContent = STATUS_LABEL[currentStatus] || currentStatus;
-
-      if (msgEl) msgEl.textContent = d.group_key || "—";
-
-      const rawText = String(d.raw_log_snippet || "—");
-      const MAX_LINES = 80;
-
-      const lines = rawText.split(/\r?\n/);
-      const clipped = lines.slice(0, MAX_LINES).join("\n");
-      const suffix = lines.length > MAX_LINES ? "\n\n… (recortado)" : "";
-
-      if (rawEl) rawEl.textContent = clipped + suffix;
-
-      if (statusSel instanceof HTMLSelectElement) statusSel.value = currentStatus;
-      if (dispSel instanceof HTMLSelectElement) dispSel.value = String(d.disposition || "");
-      if (noteTa instanceof HTMLTextAreaElement) noteTa.value = String(d.note || "");
-
-      if (saveBtn instanceof HTMLButtonElement) saveBtn.disabled = false;
     };
 
     const closeEventModal = () => {
@@ -1101,36 +1086,29 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
       if (statusMsg) statusMsg.textContent = "Guardando...";
       if (saveBtn instanceof HTMLButtonElement) saveBtn.disabled = true;
 
-      const res = await fetch(`${API_BASE}/alerts/${encodeURIComponent(currentModalEventId)}`, {
-        method: "PATCH",
-        headers: authHeaders(),
-        body: JSON.stringify({
+      try {
+        const out = await apiPut(`/alerts/${encodeURIComponent(currentModalEventId)}`, {
           status: newStatus,
           disposition: disposition || null,
           note: note || null,
           category: null,
-        }),
-      });
+        });
 
-      if (!res.ok) {
-        console.error("Error update alert:", await res.text());
+        const s = out.status || newStatus;
+
+        if (statusTextEl) statusTextEl.textContent = STATUS_LABEL[s] || s;
+        if (statusMsg) statusMsg.textContent = "Guardado";
+
+        if (saveBtn instanceof HTMLButtonElement) setTimeout(() => { saveBtn.disabled = false; }, 250);
+      } catch (err) {
+        console.error("Error update alert:", err);
         if (statusMsg) statusMsg.textContent = "Error al guardar";
-        if (saveBtn instanceof HTMLButtonElement) saveBtn.disabled = false;
-        return;
       }
-
-      const out = await res.json();
-      const s = out.status || newStatus;
-
-      if (statusTextEl) statusTextEl.textContent = STATUS_LABEL[s] || s;
-      if (statusMsg) statusMsg.textContent = "Guardado";
-
-      if (saveBtn instanceof HTMLButtonElement) setTimeout(() => { saveBtn.disabled = false; }, 250);
-
-      await load();
     };
 
     // Actions
+
+
     btnApply?.addEventListener("click", () => {
       state.server = (serverSelect instanceof HTMLSelectElement ? serverSelect.value : "") || "";
       state.severity = String(fSeverity?.value || "all").trim();

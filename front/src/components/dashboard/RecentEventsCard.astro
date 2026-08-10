@@ -1,5 +1,4 @@
 ---
-const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
 ---
 
 <div class="rounded-xl bg-white border border-[#E5E7EB] p-6 shadow-sm">
@@ -27,8 +26,13 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
     </table>
   </div>
 
-  <script type="module" define:vars={{ API_BASE }}>
+  <script>
+    // @ts-nocheck
+    import { apiGet } from "../../lib/api.js";
+
+
     const tbody = document.querySelector("[data-incidents-body]");
+
 
     // @ts-ignore
     const TOKEN = window.SENTINELX_TOKEN || null;
@@ -190,30 +194,20 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
       });
     }
 
-    async function loadRecentIncidents(filters) {
+    async function loadRecentIncidents(filters: any) {
       if (!tbody) return;
       const params = buildQueryParams(filters);
 
       try {
-        const res = await fetch(`${API_BASE}/dashboard/incidents/recent?${params.toString()}`, {
-          headers: TOKEN
-            ? { Authorization: `Bearer ${TOKEN}`, Accept: "application/json" }
-            : { Accept: "application/json" },
-        });
-
-        if (!res.ok) {
-          console.error("Error cargando /incidents:", await res.text());
-          renderIncidents([]);
-          return;
-        }
-
-        const data = await res.json();
+        const queryObj = Object.fromEntries(params.entries());
+        const data = await apiGet("/dashboard/incidents/recent", queryObj);
         renderIncidents(data.items || []);
       } catch (err) {
         console.error("Error llamando /incidents:", err);
         renderIncidents([]);
       }
     }
+
 
     loadRecentIncidents(getInitialFilters());
 

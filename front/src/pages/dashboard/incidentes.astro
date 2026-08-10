@@ -2,8 +2,8 @@
 import DashboardLayout from "../../layouts/DashboardLayout.astro";
 import HeaderBar from "../../components/dashboard/HeaderBar.astro";
 
-const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
 ---
+
 
 <DashboardLayout pageTitle="SentinelX SIEM – Incidentes Detectados">
   <HeaderBar
@@ -245,10 +245,11 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
     </div>
   </div>
 
-  <script type="module" define:vars={{ API_BASE }}>
-    // -----------------------------
-    // Token: NO cachear en const
-    // -----------------------------
+  <script>
+    // @ts-nocheck
+    import { apiGet, apiPut } from "../../lib/api.js";
+
+
     const getToken = () => {
       try {
         // 1) si algún bootstrap lo puso en window
@@ -616,53 +617,31 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
       return params;
     };
 
-    const loadIncidents = async (filters) => {
+    const loadIncidents = async (filters: any) => {
       const params = buildQueryParams(filters);
-      const res = await fetch(`${API_BASE}/incidents?${params.toString()}`, { headers: authHeaders() });
-      if (!res.ok) {
-        const t = await res.text();
-        console.error("Error cargando /incidents:", res.status, t);
-        return;
+      try {
+        const queryObj = Object.fromEntries(params.entries());
+        const data = await apiGet("/incidents", queryObj);
+        const items = Array.isArray(data.items) ? data.items : [];
+        allRows = items.map(normalizeIncident);
+        currentFilteredRows = allRows.slice();
+        state.page = 1;
+        render();
+      } catch (err) {
+        console.error("Error cargando /incidents:", err);
       }
-      const data = await res.json();
-      const items = Array.isArray(data.items) ? data.items : [];
-      allRows = items.map(normalizeIncident);
-      currentFilteredRows = allRows.slice();
-      state.page = 1;
-      render();
     };
 
     // API
-    const fetchIncidentDetail = async (id) => {
-      const res = await fetch(`${API_BASE}/incidents/${encodeURIComponent(id)}`, { headers: authHeaders() });
-      if (!res.ok) {
-        const t = await res.text();
-        const err = new Error(t);
-        // @ts-ignore
-        err.status = res.status;
-        throw err;
-      }
-      return await res.json();
+    const fetchIncidentDetail = async (id: any) => {
+      return await apiGet(`/incidents/${encodeURIComponent(id)}`);
     };
 
-    const patchIncidentStatus = async (id, payload, cascade=false) => {
-      const url = new URL(`${API_BASE}/incidents/${encodeURIComponent(id)}/status`);
-      if (cascade) url.searchParams.set("cascade", "true");
-
-      const res = await fetch(url.toString(), {
-        method: "PATCH",
-        headers: { ...authHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        const err = new Error(t);
-        // @ts-ignore
-        err.status = res.status;
-        throw err;
-      }
-      return await res.json();
+    const patchIncidentStatus = async (id: any, payload: any, cascade=false) => {
+      const path = `/incidents/${encodeURIComponent(id)}/status${cascade ? "?cascade=true" : ""}`;
+      return await apiPut(path, payload);
     };
+
 
     const renderIncidentDetail = (d) => {
       if (detailTitleEl) detailTitleEl.textContent = `${safeText(d.code)} — ${safeText(d.name)}`.trim();

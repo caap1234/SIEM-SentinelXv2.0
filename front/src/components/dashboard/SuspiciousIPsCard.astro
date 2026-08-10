@@ -1,5 +1,4 @@
 ---
-const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
 ---
 
 <div class="rounded-xl bg-white border border-[#E5E7EB] p-6 shadow-sm flex flex-col">
@@ -28,8 +27,13 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
     </div>
   </div>
 
-  <script type="module" define:vars={{ API_BASE }}>
+  <script>
+    // @ts-nocheck
+    import { apiGet } from "../../lib/api.js";
+
+
     const container = document.querySelector("[data-suspicious-list]");
+
 
     // @ts-ignore
     const TOKEN = window.SENTINELX_TOKEN || null;
@@ -37,12 +41,13 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
     /**
      * @param {{server:string; dateRange:string; severity:string; rangeFrom?:string|null; rangeTo?:string|null}} filters
      */
-    function buildQueryParams(filters) {
+    function buildQueryParams(_filters: any) {
       const params = new URLSearchParams();
       params.set("entity_type", "ip");
       params.set("limit", "4");
       return params;
     }
+
 
     function getInitialFilters() {
       // @ts-ignore
@@ -151,31 +156,24 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
     }
 
 
+
+
+
     async function loadSuspiciousIPs(filters) {
       if (!container) return;
 
       const params = buildQueryParams(filters);
 
       try {
-        const res = await fetch(`${API_BASE}/dashboard/entities/top?${params.toString()}`, {
-          headers: TOKEN
-            ? { Authorization: `Bearer ${TOKEN}`, Accept: "application/json" }
-            : { Accept: "application/json" },
-        });
-
-        if (!res.ok) {
-          console.error("Error cargando /dashboard/entities/top:", await res.text());
-          renderIPs([]);
-          return;
-        }
-
-        const data = await res.json();
+        const queryObj = Object.fromEntries(params.entries());
+        const data = await apiGet("/dashboard/entities/top", queryObj);
         renderIPs(data.items || []);
       } catch (err) {
         console.error("Error llamando /dashboard/entities/top:", err);
         renderIPs([]);
       }
     }
+
 
     // carga inicial
     loadSuspiciousIPs(getInitialFilters());
