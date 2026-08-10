@@ -30,49 +30,46 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
     </div>
   </div>
 
-  <script type="module" define:vars={{ API_BASE }}>
+  <script>
+    import { getDashboardSummary } from "../../lib/dashboard.js";
+
     const container = document.querySelector("[data-system-status]");
 
-    // @ts-ignore
-    const TOKEN = window.SENTINELX_TOKEN || null;
+    const COLOR_MAP = {
+      healthy: "#22C55E", // verde
+      degraded: "#F59E0B", // amarillo
+      offline: "#DC2626", // rojo
+      unknown: "#9CA3AF", // gris
+    };
 
-    /**
-     * @param {{component:string; status:string; detail?:string; status_code?:"ok"|"warning"|"error"|"unknown";}[]} items
-     */
-    function renderStatus(items) {
+    function renderStatus(healthObj) {
       if (!container) return;
       container.innerHTML = "";
 
-      const COLOR_MAP = {
-        ok: "#22C55E", // verde
-        warning: "#F59E0B", // amarillo
-        error: "#DC2626", // rojo
-        unknown: "#9CA3AF", // gris
-      };
+      const components = [
+        { name: "API Control Plane", key: "api", detail: "FastAPI Stateful Services" },
+        { name: "NATS JetStream", key: "nats", detail: "Broker & Streaming Engine" },
+        { name: "OpenSearch Cluster", key: "opensearch", detail: "Data Streams & Indexers" },
+        { name: "MinIO S3 Evidence", key: "minio", detail: "Gzip & Hash Verification" },
+        { name: "PostgreSQL DB", key: "postgresql", detail: "Transactional & Audit Engine" },
+      ];
 
-      if (!Array.isArray(items) || items.length === 0) {
-        const row = document.createElement("div");
-        row.className = "py-3 text-center text-[11px] text-[#9CA3AF]";
-        row.textContent = "Sin información de estado disponible.";
-        container.append(row);
-        return;
-      }
-
-      items.forEach((item) => {
+      components.forEach((c) => {
+        const state = healthObj[c.key] || "unknown";
         const row = document.createElement("div");
         row.className = "grid grid-cols-4 py-3 items-center";
 
         const comp = document.createElement("div");
         comp.className = "pl-1 text-[#111827] font-medium";
-        comp.textContent = item.component;
+        comp.textContent = c.name;
 
         const status = document.createElement("div");
-        status.className = "text-center text-[#4B5563]";
-        status.textContent = item.status;
+        status.className = "text-center text-[#4B5563] capitalize";
+        status.textContent = state;
 
         const detail = document.createElement("div");
         detail.className = "text-left text-[#6B7280]";
-        detail.textContent = item.detail || "—";
+        detail.textContent = c.detail;
 
         const indicatorBox = document.createElement("div");
         indicatorBox.className = "flex justify-center";
@@ -83,21 +80,18 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
 
         const dot = document.createElement("span");
         dot.className = "h-2.5 w-2.5 rounded-full";
-
-        const code = item.status_code || "unknown";
-        dot.style.backgroundColor =
-          COLOR_MAP[code] || COLOR_MAP.unknown;
+        dot.style.backgroundColor = COLOR_MAP[state] || COLOR_MAP.unknown;
 
         const label = document.createElement("span");
         label.className = "text-[10px] text-[#4B5563]";
         label.textContent =
-          code === "ok"
+          state === "healthy"
             ? "Estable"
-            : code === "warning"
+            : state === "degraded"
             ? "Atención"
-            : code === "error"
+            : state === "offline"
             ? "Crítico"
-            : "Sin datos";
+            : "Desconocido";
 
         pill.append(dot, label);
         indicatorBox.append(pill);
@@ -111,36 +105,16 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
       if (!container) return;
 
       try {
-        const res = await fetch(`${API_BASE}/dashboard/system-status`, {
-          headers: TOKEN
-            ? {
-                Authorization: `Bearer ${TOKEN}`,
-                Accept: "application/json",
-              }
-            : { Accept: "application/json" },
-        });
-
-        if (!res.ok) {
-          console.error(
-            "Error cargando /dashboard/system-status:",
-            await res.text()
-          );
-          renderStatus([]);
-          return;
-        }
-
-        const data = await res.json();
-        const items = Array.isArray(data)
-          ? data
-          : data.items || data.components || [];
-        renderStatus(items);
+        const summary = await getDashboardSummary();
+        renderStatus(summary.system_health || {});
       } catch (err) {
-        console.error("Error llamando /dashboard/system-status:", err);
-        renderStatus([]);
+        console.error("Error al cargar estado del sistema SIEM:", err);
+        renderStatus({});
       }
     }
 
-    // carga única (no depende de filtros)
     loadSystemStatus();
+    setInterval(loadSystemStatus, 15000); // Polling configurable cada 15 segundos
   </script>
+
 </div>
