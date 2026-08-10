@@ -114,7 +114,10 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
     </footer>
   </main>
 
-  <script type="module" define:vars={{ API_BASE }}>
+  <script>
+    import { setToken } from "../../lib/auth.js";
+
+    const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
 
     const form = document.querySelector("[data-login-form]");
     const emailInput = document.querySelector("[data-login-email]");
@@ -209,19 +212,9 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
             return;
           }
 
-          // Guardar token según "Recuérdame"
-          if (rememberInput && rememberInput.checked) {
-            // Persistente entre sesiones
-            localStorage.setItem("sentinelx_token", token);
-            sessionStorage.removeItem("sentinelx_token");
-          } else {
-            // Solo mientras el navegador esté abierto
-            sessionStorage.setItem("sentinelx_token", token);
-            localStorage.removeItem("sentinelx_token");
-          }
-
-          // Redirigir al dashboard
-          window.location.href = "/dashboard";
+          // Guardar token mediante servicio auth.js
+          const remember = rememberInput ? rememberInput.checked : false;
+          setToken(token, remember);
 
           // Redirigir al dashboard
           window.location.href = "/dashboard";
@@ -235,4 +228,5 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
       });
     }
   </script>
+
 </LandingLayout>

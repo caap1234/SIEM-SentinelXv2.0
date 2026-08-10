@@ -28,6 +28,14 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
     </h1>
 
     <div class="flex items-center gap-4">
+      <!-- Tenant Badge -->
+      <div class="hidden sm:flex items-center gap-1.5 text-xs text-[#6B7280]">
+        <span class="text-[11px] font-medium text-[#9CA3AF]">Tenant:</span>
+        <span data-header-tenant-badge class="text-[11px] font-mono font-semibold text-[#E67E22] px-2.5 py-0.5 bg-[#FFF7ED] border border-[#E67E22]/30 rounded-full">
+          default
+        </span>
+      </div>
+
       <!-- Botón campana -->
       <button
         type="button"
@@ -62,27 +70,36 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
 
         <div
           data-profile-menu
-          class="hidden absolute right-0 mt-2 w-52 rounded-lg bg-white border border-[#E5E7EB]
+          class="hidden absolute right-0 mt-2 w-56 rounded-lg bg-white border border-[#E5E7EB]
                  shadow-lg text-xs text-[#4B5563] z-20 overflow-hidden"
         >
-          <!-- Bloque con usuario y rol -->
+          <!-- Bloque con usuario, rol y tenant -->
           <div class="px-4 py-3 border-b border-[#E5E7EB] bg-[#F9FAFB]">
             <p
               data-user-name-menu
-              class="text-[13px] font-semibold text-[#111827]"
+              class="text-[13px] font-semibold text-[#111827] truncate"
             >
               Cargando usuario...
             </p>
-            <p
-              data-user-role-menu
-              class="mt-0.5 text-[11px] text-[#6B7280]"
-            >
-              —
-            </p>
+            <div class="mt-1.5 flex items-center justify-between">
+              <span
+                data-user-role-menu
+                class="text-[11px] font-medium text-[#6B7280] capitalize"
+              >
+                —
+              </span>
+              <span
+                data-user-tenant-menu
+                class="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-[#FFF7ED] text-[#E67E22] border border-[#E67E22]/30"
+              >
+                default
+              </span>
+            </div>
           </div>
 
           <!-- Cerrar sesión -->
           <button
+
             type="button"
             data-logout-button
             class="w-full text-left block px-4 py-2.5 hover:bg-[#F9FAFB] text-[#DC2626] text-[12px]"
@@ -319,7 +336,26 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
     </div>
   )}
 
-  <script type="module" define:vars={{ API_BASE }}>
+  <script>
+    import { getAuthContext, logout, can, hasRole } from "../../lib/auth.js";
+
+    // Exponer ayuda global para componentes y páginas
+    window.SentinelXAuth = {
+      getAuthContext,
+      logout,
+      can,
+      hasRole,
+    };
+
+    const ctx = getAuthContext();
+    if (!ctx.authenticated && !window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login";
+    }
+
+    const headerTenantBadge = document.querySelector("[data-header-tenant-badge]");
+    if (headerTenantBadge) {
+      headerTenantBadge.textContent = ctx.tenant_id;
+    }
 
     // =========================
     // Perfil
@@ -330,7 +366,12 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
       const menu = container.querySelector("[data-profile-menu]");
       const nameMenuEl = container.querySelector("[data-user-name-menu]");
       const roleMenuEl = container.querySelector("[data-user-role-menu]");
+      const tenantMenuEl = container.querySelector("[data-user-tenant-menu]");
       const logoutBtn = container.querySelector("[data-logout-button]");
+
+      if (nameMenuEl) nameMenuEl.textContent = ctx.username;
+      if (roleMenuEl) roleMenuEl.textContent = ctx.role;
+      if (tenantMenuEl) tenantMenuEl.textContent = ctx.tenant_id;
 
       const closeMenu = () => menu?.classList.add("hidden");
       const toggleMenu = () => menu?.classList.toggle("hidden");
@@ -348,54 +389,12 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000"
         if (event.key === "Escape") closeMenu();
       });
 
-      const token =
-        localStorage.getItem("sentinelx_token") ||
-        sessionStorage.getItem("sentinelx_token");
-      // @ts-ignore
-      window.SENTINELX_TOKEN = token;
-
-      if (!token) {
-        window.location.href = "/login";
-      } else {
-        (async () => {
-          try {
-            const res = await fetch(`${API_BASE}/auth/me`, {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                Accept: "application/json",
-              },
-            });
-
-            if (res.status === 401) {
-              localStorage.removeItem("sentinelx_token");
-              sessionStorage.removeItem("sentinelx_token");
-              window.location.href = "/login";
-              return;
-            }
-
-            if (!res.ok) {
-              console.error("Error al obtener /auth/me", await res.text());
-              return;
-            }
-
-            const user = await res.json();
-            if (nameMenuEl) nameMenuEl.textContent = user.full_name || user.email;
-            if (roleMenuEl) {
-              roleMenuEl.textContent = user.is_admin ? "Administrador" : "Analista estándar";
-            }
-          } catch (err) {
-            console.error("Error llamando /auth/me", err);
-          }
-        })();
-      }
-
       logoutBtn?.addEventListener("click", (e) => {
         e.preventDefault();
-        localStorage.removeItem("sentinelx_token");
-        sessionStorage.removeItem("sentinelx_token");
-        window.location.href = "/login";
+        logout();
       });
     }
+
 
     // =========================
     // Helpers: cargar servidores desde /public/data/servers.json
