@@ -23,4 +23,4 @@ EXPOSE 8000
 
 ENTRYPOINT ["tini", "--"]
 
-CMD ["bash", "-lc", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["bash", "-lc", "alembic upgrade heads && uvicorn app.main:app --host 0.0.0.0 --port 8000"]

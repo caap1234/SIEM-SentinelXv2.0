@@ -116,7 +116,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     command: >
-      bash -lc "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+      bash -lc "alembic upgrade heads && uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
   parsing_worker:
     build:

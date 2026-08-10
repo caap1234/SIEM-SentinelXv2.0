@@ -45,7 +45,7 @@ def step_2_run_alembic_migrations():
     try:
         alembic_cfg = Config(os.path.join(ROOT_DIR, "alembic.ini"))
         alembic_cfg.set_main_option("script_location", os.path.join(ROOT_DIR, "alembic"))
-        command.upgrade(alembic_cfg, "head")
+        command.upgrade(alembic_cfg, "heads")
         logger.info("  Migraciones de Alembic completadas con éxito (head).")
     except Exception as e:
         logger.warning(f"  Aviso durante Alembic upgrade: {e}. Creando tablas via ORM metadata...")
