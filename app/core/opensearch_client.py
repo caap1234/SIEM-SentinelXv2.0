@@ -153,3 +153,40 @@ class OpenSearchClient:
         except Exception as e:
             logger.error("Error catastrófico en bulk index de OpenSearch: %s", e)
             raise OpenSearchServiceError(f"Error en indexación por lotes: {e}") from e
+
+    def search_events(
+        self,
+        query_body: Dict[str, Any],
+        tenant_id: str,
+        target_stream: str = "sentinelx-events-hosting-default",
+    ) -> Dict[str, Any]:
+        """
+        Ejecuta una búsqueda en OpenSearch garantizando el aislamiento estricto por tenant_id.
+        Inyecta obligatoriamente el filtro term: tenant.id.
+        """
+        if not self._connected or not self.client:
+            if not self.connect():
+                raise OpenSearchUnavailableError("Clúster OpenSearch fuera de línea")
+
+        # Inyectar filtro obligatorio de tenant
+        tenant_filter = {"term": {"tenant.id": tenant_id}}
+
+        if "query" not in query_body:
+            query_body["query"] = {"bool": {"filter": [tenant_filter]}}
+        elif "bool" not in query_body["query"]:
+            orig_q = query_body["query"]
+            query_body["query"] = {"bool": {"must": [orig_q], "filter": [tenant_filter]}}
+        else:
+            filters = query_body["query"]["bool"].get("filter", [])
+            if isinstance(filters, list):
+                filters.append(tenant_filter)
+            else:
+                query_body["query"]["bool"]["filter"] = [filters, tenant_filter]
+
+        try:
+            res = self.client.search(index=target_stream, body=query_body)
+            return res
+        except Exception as e:
+            logger.error("Error en búsqueda de OpenSearch para tenant %s: %s", tenant_id, e)
+            raise OpenSearchServiceError(f"Error en búsqueda: {e}") from e
+

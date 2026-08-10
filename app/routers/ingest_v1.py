@@ -54,6 +54,8 @@ def verify_ingest_auth(x_api_key: Optional[str] = Header(None, alias="X-API-Key"
     return key
 
 
+from app.schemas.dependencies import AuthContext, get_current_auth_context
+
 @router.post(
     "/event",
     response_model=IngestAckResponse,
@@ -62,12 +64,15 @@ def verify_ingest_auth(x_api_key: Optional[str] = Header(None, alias="X-API-Key"
 )
 async def ingest_single_event(
     event: NormalizedEvent,
-    api_key: str = Depends(verify_ingest_auth),
+    ctx: AuthContext = Depends(get_current_auth_context),
 ):
     """
-    Recibe un evento canónico (NormalizedEvent), asigna tenant_id y publica hacia NATS JetStream.
-    Retorna 202 Accepted únicamente tras confirmar la publicación durable en el broker.
+    Recibe un evento canónico (NormalizedEvent), asigna tenant_id autenticado y publica hacia NATS JetStream.
     """
+    if ctx.tenant_id and ctx.tenant_id != "default":
+        event.tenant.id = ctx.tenant_id
+
+
     nats_service = NatsService.get_instance()
 
     try:
@@ -101,11 +106,16 @@ async def ingest_single_event(
 )
 async def ingest_batch_events(
     events: List[NormalizedEvent],
-    api_key: str = Depends(verify_ingest_auth),
+    ctx: AuthContext = Depends(get_current_auth_context),
 ):
     """
-    Recibe un lote de eventos normalizados y los publica masivamente en NATS JetStream.
+    Recibe un lote de eventos normalizados y los publica masivamente en NATS JetStream con tenant_id aislado.
     """
+    if ctx.tenant_id and ctx.tenant_id != "default":
+        for ev in events:
+            ev.tenant.id = ctx.tenant_id
+
+
     if not events:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

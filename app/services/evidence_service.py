@@ -44,6 +44,12 @@ class MinioUnavailableError(EvidenceServiceError):
     pass
 
 
+class EvidenceAccessDeniedError(EvidenceServiceError):
+    """Se lanza cuando un tenant intenta acceder a la evidencia de otro tenant."""
+    pass
+
+
+
 class EvidenceService:
     _instance: Optional[EvidenceService] = None
 
@@ -224,3 +230,19 @@ class EvidenceService:
         except Exception as e:
             logger.error("Fallo al recuperar evidencia S3 %s: %s", object_key, e)
             raise EvidenceServiceError(f"Error al descargar o verificar evidencia: {e}") from e
+
+    def retrieve_and_verify_evidence_for_tenant(
+        self,
+        object_key: str,
+        tenant_id: str,
+        bucket_name: str = MINIO_BUCKET_NAME,
+    ) -> Tuple[bytes, Dict[str, str], bool]:
+        """
+        Descarga y verifica la evidencia S3 asegurando que el objeto pertenezca al tenant especificado.
+        """
+        if not object_key.startswith(f"{tenant_id}/") and tenant_id != "admin":
+            logger.warning("Intento de violación de propiedad de evidencia S3: key=%s vs tenant_id=%s", object_key, tenant_id)
+            raise EvidenceAccessDeniedError(f"Acceso denegado a la evidencia '{object_key}': pertenece a otro tenant.")
+
+        return self.retrieve_and_verify_evidence(object_key=object_key, bucket_name=bucket_name)
+

@@ -4,6 +4,7 @@ from app.models.tenant import Tenant
 from app.models.rbac import Role, Permission, role_permissions
 from app.models.agent import RegisteredAgent
 from app.models.audit_log import AuditLog
+from app.models.agent_api_key import AgentApiKey
 from app.models.user import User
 from app.models.api_key import ApiKey
 from app.models.log_upload import LogUpload
@@ -31,6 +32,7 @@ __all__ = [
     "role_permissions",
     "RegisteredAgent",
     "AuditLog",
+    "AgentApiKey",
     "User",
     "ApiKey",
     "LogUpload",
