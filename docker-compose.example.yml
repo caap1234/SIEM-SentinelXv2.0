@@ -39,7 +39,7 @@ services:
       retries: 10
 
   opensearch:
-    image: opensearchproject/opensearch:2.11.1
+    image: opensearchproject/opensearch:2.5.0
     container_name: sentinelx-opensearch
     restart: unless-stopped
     environment:
