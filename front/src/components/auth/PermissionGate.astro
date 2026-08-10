@@ -1,0 +1,78 @@
+---
+/**
+ * Componente PermissionGate.astro para renderizado condicional según permisos RBAC.
+ */
+export interface Props {
+  permission?: string;
+  role?: string;
+  anyPermissions?: string[];
+  allPermissions?: string[];
+  class?: string;
+}
+
+const {
+  permission = "",
+  role = "",
+  anyPermissions = [],
+  allPermissions = [],
+  class: className = "",
+} = Astro.props;
+---
+
+<div
+  class={className}
+  data-rbac-gate
+  data-rbac-permission={permission}
+  data-rbac-role={role}
+  data-rbac-any={anyPermissions.join(",")}
+  data-rbac-all={allPermissions.join(",")}
+>
+  <slot />
+</div>
+
+<script>
+  import { can, hasRole, canAny, canAll } from "../../lib/rbac.js";
+
+  function evaluateRbacGates() {
+    const gates = document.querySelectorAll("[data-rbac-gate]");
+    gates.forEach((gate) => {
+      if (!(gate instanceof HTMLElement)) return;
+
+      const perm = gate.getAttribute("data-rbac-permission");
+      const r = gate.getAttribute("data-rbac-role");
+      const anyP = gate.getAttribute("data-rbac-any");
+      const allP = gate.getAttribute("data-rbac-all");
+
+      let allowed = true;
+
+      if (perm && !can(perm)) {
+        allowed = false;
+      }
+      if (r && !hasRole(r)) {
+        allowed = false;
+      }
+      if (anyP) {
+        const list = anyP.split(",").filter(Boolean);
+        if (list.length > 0 && !canAny(list)) {
+          allowed = false;
+        }
+      }
+      if (allP) {
+        const list = allP.split(",").filter(Boolean);
+        if (list.length > 0 && !canAll(list)) {
+          allowed = false;
+        }
+      }
+
+      if (!allowed) {
+        gate.style.display = "none";
+      }
+    });
+  }
+
+  // Evaluar gates en carga inicial
+  evaluateRbacGates();
+
+  // Re-evaluar si cambia el token o la sesión
+  window.addEventListener("sentinelx:auth-changed", evaluateRbacGates);
+</script>

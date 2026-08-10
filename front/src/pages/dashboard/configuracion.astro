@@ -25,8 +25,9 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
     </div>
 
     <!-- USUARIOS Y ROLES (solo admin) -->
-    <div id="adminUsersSection" class="rounded-xl bg-white border border-[#E5E7EB] shadow-sm overflow-hidden hidden">
+    <div id="adminUsersSection" class="rounded-xl bg-white border border-[#E5E7EB] shadow-sm overflow-hidden hidden" data-rbac-gate data-rbac-permission="configuration.manage">
       <div class="px-8 py-4 border-b border-[#E5E7EB]">
+
         <h2 class="text-sm font-semibold text-center text-[#111827]">
           Usuarios y roles
         </h2>

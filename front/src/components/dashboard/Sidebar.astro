@@ -36,19 +36,18 @@ interface NavItem {
   id: NavItemId;
   label: string;
   href: string;
+  permission?: string;
 }
 
 const navItems: NavItem[] = [
-  { id: "dashboard", label: "Dashboard", href: "/dashboard" },
-  { id: "logs", label: "Cargar Logs", href: "/dashboard/cargar-logs" },
-  // INCIDENTES
-  { id: "incidentes", label: "Incidentes", href: "/dashboard/incidentes" },
-  { id: "ips", label: "Entidades", href: "/dashboard/entidades" },
-  { id: "events", label: "Alertas Detectados", href: "/dashboard/alertas" },
-      // 🆕 PROCESOS (pipeline / engine / jobs)
-  { id: "procesos", label: "Procesos", href: "/dashboard/procesos" },
-  { id: "api", label: "API", href: "/dashboard/api-keys" },
-  { id: "config", label: "Configuración", href: "/dashboard/configuracion" },
+  { id: "dashboard", label: "Dashboard", href: "/dashboard", permission: "ingest.read" },
+  { id: "logs", label: "Cargar Logs", href: "/dashboard/cargar-logs", permission: "configuration.manage" },
+  { id: "incidentes", label: "Incidentes", href: "/dashboard/incidentes", permission: "incidents.manage" },
+  { id: "ips", label: "Entidades", href: "/dashboard/entidades", permission: "alerts.read" },
+  { id: "events", label: "Alertas Detectadas", href: "/dashboard/alertas", permission: "alerts.read" },
+  { id: "procesos", label: "Procesos", href: "/dashboard/procesos", permission: "ingest.read" },
+  { id: "api", label: "API Keys", href: "/dashboard/api-keys", permission: "agents.manage" },
+  { id: "config", label: "Configuración", href: "/dashboard/configuracion", permission: "configuration.manage" },
 ];
 
 const bottomItem = {
@@ -75,7 +74,7 @@ const currentPath = normalize(Astro.url.pathname);
   </div>
 
   <!-- Navegación -->
-  <nav class="flex-1 px-4 pt-6 pb-4 space-y-2">
+  <nav class="flex-1 px-4 pt-6 pb-4 space-y-2" data-sidebar-nav>
     {navItems.map((item) => {
       const isActive = normalize(item.href) === currentPath;
       const Icon = iconMap[item.id];
@@ -83,6 +82,8 @@ const currentPath = normalize(Astro.url.pathname);
       return (
         <a
           href={item.href}
+          data-nav-id={item.id}
+          data-rbac-perm={item.permission || ""}
           class={`flex items-center gap-5 px-4 py-2.5 rounded-lg text-[16px] transition-colors
             ${
               isActive
@@ -99,10 +100,11 @@ const currentPath = normalize(Astro.url.pathname);
 
   <!-- Cerrar sesión -->
   <div class="px-4 pb-6 border-t border-black/20 pt-4">
-    <a
-      href={bottomItem.href}
-      class="flex items-center gap-4 px-4 py-2.5 rounded-lg text-[16px] text-[#D6D9DD]
-             hover:bg-[#2A3138] transition-colors"
+    <button
+      type="button"
+      data-sidebar-logout
+      class="w-full flex items-center gap-4 px-4 py-2.5 rounded-lg text-[16px] text-[#D6D9DD]
+             hover:bg-[#2A3138] transition-colors text-left"
     >
       <img
         src={bottomItem.icon}
@@ -111,6 +113,32 @@ const currentPath = normalize(Astro.url.pathname);
         loading="lazy"
       />
       <span>{bottomItem.label}</span>
-    </a>
+    </button>
   </div>
 </aside>
+
+<script>
+  import { can, logout } from "../../lib/rbac.js";
+
+  function applySidebarPermissions() {
+    const items = document.querySelectorAll("[data-nav-id]");
+    items.forEach((item) => {
+      if (!(item instanceof HTMLElement)) return;
+      const perm = item.getAttribute("data-rbac-perm");
+      if (perm && !can(perm)) {
+        item.style.display = "none";
+      } else {
+        item.style.display = "flex";
+      }
+    });
+  }
+
+  applySidebarPermissions();
+  window.addEventListener("sentinelx:auth-changed", applySidebarPermissions);
+
+  const logoutBtn = document.querySelector("[data-sidebar-logout]");
+  logoutBtn?.addEventListener("click", () => {
+    logout();
+  });
+</script>
+

@@ -22,7 +22,8 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
   <section class="px-8 py-6 bg-[#F4F5F7] min-h-[calc(100vh-73px)]">
     <div class="max-w-[1100px] mx-auto space-y-6">
       <!-- ================= Crear API Key ================= -->
-      <div class="rounded-2xl bg-white border border-[#E5E7EB] shadow-sm p-6">
+      <div class="rounded-2xl bg-white border border-[#E5E7EB] shadow-sm p-6" data-rbac-gate data-rbac-permission="agents.manage">
+
         <h2 class="text-[15px] font-semibold text-[#111827]">Crear API Key</h2>
         <p class="mt-1 text-[12px] text-[#6B7280]">
           Selecciona el servidor y asigna un nombre. La llave solo se muestra una vez.
