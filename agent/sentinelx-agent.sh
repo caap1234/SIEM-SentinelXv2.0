@@ -202,13 +202,13 @@ check_spool_size() {
 backend_reachable() {
   local http_code
   http_code="$(
-    curl -sS \\
-      --connect-timeout "$CONNECT_TIMEOUT" \\
-      --max-time "$CONNECT_TIMEOUT" \\
-      -H "X-API-Key: ${SENTINELX_API_KEY}" \\
-      -o /dev/null \\
-      -w "%{http_code}" \\
-      -I \\
+    curl -sS \
+      --connect-timeout "$CONNECT_TIMEOUT" \
+      --max-time "$CONNECT_TIMEOUT" \
+      -H "X-API-Key: ${SENTINELX_API_KEY}" \
+      -o /dev/null \
+      -w "%{http_code}" \
+      -I \
       "$SENTINELX_INGEST_URL" || true
   )"
 
