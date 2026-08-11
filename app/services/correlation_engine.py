@@ -6,6 +6,7 @@ y genera Alertas sin realizar consultas SQL.
 """
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from collections import defaultdict, deque
@@ -129,7 +130,7 @@ class CorrelationEngine:
                 try:
                     await kv_store.put(raw_key, json.dumps(events_list).encode("utf-8"))
                 except Exception as put_err:
-                    logger.debug("NATS KV put notice: %s", put_err)
+                    logger.error("NATS KV put error: %s", put_err)
             else:
                 # Fallback en memoria local
                 bucket_key = (tenant_id, rule.id, group_key)

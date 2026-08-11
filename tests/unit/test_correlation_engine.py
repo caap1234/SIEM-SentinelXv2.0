@@ -82,7 +82,6 @@ def test_correlation_engine_tenant_isolation():
 
 @pytest.mark.asyncio
 async def test_correlation_engine_distributed_kv_support():
-    from unittest.mock import AsyncMock
     rule = DetectionRule(
         id="TEST_KV_BRUTEFORCE",
         name="Test KV Bruteforce",
@@ -97,12 +96,14 @@ async def test_correlation_engine_distributed_kv_support():
     # Simulación de tienda KV en memoria
     kv_data = {}
 
+    class KVEntry:
+        def __init__(self, val: bytes):
+            self.value = val
+
     class MockKV:
         async def get(self, key):
             if key in kv_data:
-                m = AsyncMock()
-                m.value = kv_data[key]
-                return m
+                return KVEntry(kv_data[key])
             return None
 
         async def put(self, key, value):
