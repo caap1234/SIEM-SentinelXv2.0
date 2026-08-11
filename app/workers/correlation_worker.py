@@ -143,9 +143,9 @@ class CorrelationWorker:
         while self.running:
             try:
                 processed, alerts = await self.run_once()
-                if alerts > 0:
+                if processed > 0:
                     logger.info("Worker de Correlación: %d eventos procesados, %d alertas generadas", processed, alerts)
-                if processed == 0:
+                else:
                     await asyncio.sleep(0.2)
             except asyncio.CancelledError:
                 break
