@@ -195,6 +195,10 @@ _SOURCE_ALIASES = {
     "SYSTEM_SECURE": "SSH_SECURE",
     "SECURE": "SSH_SECURE",
     "SYSTEM_MESSAGES": "SYSTEM",
+    "CPANEL_ACCESS": "PANEL_ACCESS",
+    "WHM_ACCESS": "PANEL_ACCESS",
+    "APACHE_ACCESS": "WEB_ACCESS",
+    "NGINX_ACCESS": "WEB_ACCESS",
 }
 
 
@@ -272,7 +276,7 @@ def _get_from_event(event: EventLike, path: str) -> Any:
             or _get_from_event_raw(event, "event.action")
             or _get_from_event_raw(event, "event.outcome")
         )
-        if val == "failure":
+        if val in ("failure", "fail", "failed"):
             return "fail"
         if val is not None:
             return val
@@ -282,6 +286,35 @@ def _get_from_event(event: EventLike, path: str) -> Any:
             _get_from_event_raw(event, "extra.protocol")
             or _get_from_event_raw(event, "network.protocol")
             or _get_from_event_raw(event, "service.name")
+        )
+        if val is not None:
+            return val
+
+    if path in ("http_status", "status_code", "extra.status_code"):
+        val = (
+            _get_from_event_raw(event, "http.status_code")
+            or _get_from_event_raw(event, "http_status")
+            or _get_from_event_raw(event, "status_code")
+            or _get_from_event_raw(event, "extra.status_code")
+        )
+        if val is not None:
+            return val
+
+    if path in ("url_path", "request_uri", "extra.request_uri", "url.path"):
+        val = (
+            _get_from_event_raw(event, "url.path")
+            or _get_from_event_raw(event, "url.original")
+            or _get_from_event_raw(event, "url_path")
+            or _get_from_event_raw(event, "extra.request_uri")
+        )
+        if val is not None:
+            return val
+
+    if path in ("user_agent", "extra.user_agent", "user_agent.original"):
+        val = (
+            _get_from_event_raw(event, "user_agent.original")
+            or _get_from_event_raw(event, "user_agent")
+            or _get_from_event_raw(event, "extra.user_agent")
         )
         if val is not None:
             return val
@@ -425,49 +458,48 @@ def _build_group_key(event: EventLike, group_by: List[str]) -> str:
     return "|".join(parts)
 
 
-def _extract_action_for_window(extra: Any) -> Optional[str]:
-    if not isinstance(extra, dict):
-        return None
+def _extract_action_for_window(snap: Any) -> Optional[str]:
+    if isinstance(snap, dict):
+        outcome = _get_from_event(snap, "event.outcome") or _get_from_event(snap, "outcome")
+        if outcome:
+            o_str = _as_str(outcome).strip().lower()
+            if o_str in ("fail", "failed", "failure"):
+                return "fail"
+            if o_str in ("success", "ok", "passed"):
+                return "success"
 
-    a = _as_str(extra.get("action")).strip().lower()
-    if a in ("fail", "failed"):
-        return "fail"
-    if a in ("success", "ok", "passed"):
-        return "success"
+        extra = snap.get("extra", {}) if isinstance(snap.get("extra"), dict) else snap
+        if isinstance(extra, dict):
+            a = _as_str(extra.get("action")).strip().lower()
+            if a in ("fail", "failed", "failure"):
+                return "fail"
+            if a in ("success", "ok", "passed"):
+                return "success"
 
-    if extra.get("event_type") == "auth_login":
-        a2 = _as_str(extra.get("action")).strip().lower()
-        if a2 in ("fail", "failed"):
-            return "fail"
-        if a2 in ("success", "ok"):
-            return "success"
-
-    panel = extra.get("panel")
-    if isinstance(panel, dict):
-        st = _as_str(panel.get("status")).strip().lower()
-        if st in ("failed", "fail"):
-            return "fail"
-        if st in ("ok", "success"):
-            return "success"
+            panel = extra.get("panel")
+            if isinstance(panel, dict):
+                st = _as_str(panel.get("status")).strip().lower()
+                if st in ("failed", "fail", "failure"):
+                    return "fail"
+                if st in ("ok", "success"):
+                    return "success"
 
     return None
 
 
 def _extract_path_for_window(event: EventLike) -> Optional[str]:
-    p = _get_from_event(event, "extra.http.path")
+    p = (
+        _get_from_event(event, "url.path")
+        or _get_from_event(event, "url.original")
+        or _get_from_event(event, "extra.http.path")
+        or _get_from_event(event, "extra.panel.path")
+        or _get_from_event(event, "extra.waf.uri")
+        or _get_from_event(event, "extra.request_uri")
+    )
     if p is not None:
         s = _as_str(p).strip()
         return s or None
-
-    p = _get_from_event(event, "extra.panel.path")
-    if p is not None:
-        s = _as_str(p).strip()
-        return s or None
-
-    p = _get_from_event(event, "extra.waf.uri")
-    if p is not None:
-        s = _as_str(p).strip()
-        return s or None
+    return None
 
     return None
 
@@ -616,7 +648,7 @@ class RuleEngineV2:
         ev_ip = _as_str(_get_from_event(snap, "ip_client") or _get_from_event(snap, "source.ip") or _get_from_event(snap, "client.ip")).strip() or None
         ev_user = _as_str(_get_from_event(snap, "username") or _get_from_event(snap, "user.name")).strip() or None
         ev_server = _as_str(_get_from_event(snap, "server") or _get_from_event(snap, "host.name") or _get_from_event(snap, "host.hostname")).strip() or None
-        ev_action = _extract_action_for_window(extra)
+        ev_action = _extract_action_for_window(snap)
         ev_subnet24 = _ip_subnet(ev_ip, 24)
 
         for rule in candidates:
