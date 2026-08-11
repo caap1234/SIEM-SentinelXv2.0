@@ -126,7 +126,8 @@ class NatsService:
                 headers=headers,
                 timeout=5,
             )
-            return True, ack.stream, ack.sequence
+            seq = getattr(ack, "seq", getattr(ack, "sequence", 0))
+            return True, ack.stream, seq
         except Exception as e:
             logger.error("Fallo al publicar evento %s en NATS JetStream: %s", event.event.id, e)
             raise NatsServiceError(f"Fallo al publicar evento en NATS: {e}") from e
@@ -186,7 +187,8 @@ class NatsService:
                 headers=headers,
                 timeout=10,
             )
-            return True, ack.stream, ack.sequence
+            seq = getattr(ack, "seq", getattr(ack, "sequence", 0))
+            return True, ack.stream, seq
         except Exception as e:
             raise NatsServiceError(f"Fallo al publicar lote raw {batch_id}: {e}") from e
 
