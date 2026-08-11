@@ -103,17 +103,20 @@ def _get_event_asn_number(event: EventLike) -> Optional[int]:
         return None
 
 
-def _event_snapshot(event: Event) -> Dict[str, Any]:
-    extra = event.extra if isinstance(event.extra, dict) else {}
+def _event_snapshot(event: Any) -> Dict[str, Any]:
+    if isinstance(event, dict):
+        return event
+    extra = getattr(event, "extra", None)
+    extra_dict = extra if isinstance(extra, dict) else {}
     return {
-        "id": event.id,
+        "id": getattr(event, "id", None),
         "raw_id": getattr(event, "raw_id", None),
         "source": getattr(event, "source", None),
         "server": getattr(event, "server", None),
         "ip_client": getattr(event, "ip_client", None),
         "username": getattr(event, "username", None),
         "timestamp_utc": getattr(event, "timestamp_utc", None),
-        "extra": extra,
+        "extra": extra_dict,
     }
 
 
@@ -770,7 +773,7 @@ class RuleEngineV2:
                 rule_id=rule.id,
                 rule_name=rule.name,
                 severity=int(rule.severity or 3),
-                server=_get_from_event(snap, "server"),
+                server=ev_server,
                 source=src,
                 event_type=et,
                 group_key=group_key,
