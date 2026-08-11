@@ -23,6 +23,7 @@ from app.db import get_db
 from app.models.log_upload import LogUpload
 from app.models.user import User
 from app.models.api_key import ApiKey
+from app.models.agent import RegisteredAgent
 from app.routers.auth import get_current_user
 from app.core.security import verify_api_key
 from app.services.log_pipeline import process_log_file  # ✅ v2: pipeline en services
@@ -51,6 +52,8 @@ TAG_TO_LOG_TYPE = {
     "nginx": "nginx_access",
     "nginx_domlogs": "nginx_access",
     "nginx_domains": "nginx_access",
+    "nginx_error": "apache_error",
+    "nginx_error_log": "apache_error",
 
     # Mail
     "exim_mainlog": "exim_mainlog",
@@ -315,6 +318,30 @@ async def ingest_log(
     if status == "uploaded":
         log.status = "queued"
         db.commit()
+
+    # Auto-registrar / actualizar agente en RegisteredAgent
+    try:
+        tenant_str = str(getattr(api_key, "tenant_id", "default") or "default")
+        ag = db.query(RegisteredAgent).filter(
+            RegisteredAgent.hostname == server,
+            RegisteredAgent.tenant_id == tenant_str,
+        ).first()
+        now_dt = datetime.now(timezone.utc)
+        if not ag:
+            ag = RegisteredAgent(
+                tenant_id=tenant_str,
+                name=server,
+                hostname=server,
+                status="healthy",
+                last_seen_at=now_dt,
+            )
+            db.add(ag)
+        else:
+            ag.status = "healthy"
+            ag.last_seen_at = now_dt
+        db.commit()
+    except Exception as ag_err:
+        db.rollback()
 
     return {"id": log.id, "status": log.status, "server": server, "log_type": log_type}
 
