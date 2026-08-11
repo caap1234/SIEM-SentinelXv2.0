@@ -167,34 +167,13 @@ def _mark_error(db: Session, upload_id: int, err: str) -> None:
 
 
 def _mark_parsed_or_processed(db: Session, upload_id: int) -> None:
-    """
-    Al terminar parse_log_file:
-    - si el job sigue en 'parsing', lo marca como 'parsed'
-    - guarda events_count
-    - si events_count == 0 => marca 'processed' (porque engine no tiene nada que hacer)
-
-    Optimización: acota por timestamp_utc (rango del día UTC del upload) para permitir partition pruning
-    y mejor uso de índices, sin cambiar la lógica (seguimos contando exacto).
-    """
     job = db.query(LogUpload).filter(LogUpload.id == upload_id).first()
     if not job:
         return
 
-    # Preferimos uploaded_at para acotar al día; fallback seguro a now UTC si viniera vacío.
-    uploaded_at = getattr(job, "uploaded_at", None)
-    day_start, day_end = _utc_day_bounds(_to_utc(uploaded_at))
-
-    events_count = int(
-        db.query(Event.id)
-        .filter(
-            Event.log_upload_id == upload_id,
-            Event.timestamp_utc >= day_start,
-            Event.timestamp_utc < day_end,
-        )
-        .count()
-    )
-
     meta = job.extra_meta if isinstance(job.extra_meta, dict) else {}
+    events_count = int(meta.get("events_created", 0))
+
     meta["parsing_finished_at"] = _now_iso()
     meta["events_count"] = events_count
     job.extra_meta = meta

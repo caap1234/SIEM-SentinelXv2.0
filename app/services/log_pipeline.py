@@ -360,17 +360,10 @@ def parse_log_file(file_path: str, server: str, log_type: str, upload_id: int) -
         if not log:
             return
 
-        # Idempotencia práctica: si ya hay events para este upload, no reparseamos.
-        existing = (
-            db.query(Event.id)
-            .filter(Event.log_upload_id == upload_id)
-            .limit(1)
-            .first()
-        )
-        if existing:
-            log.status = "parsed"
+        # Idempotencia práctica: si ya fue parseado previamente, no reparseamos.
+        if log.status in ("parsed", "parsed_with_errors", "processed"):
             meta = dict(log.extra_meta or {})
-            meta["parsing_skipped_reason"] = "events_already_exist_for_upload"
+            meta["parsing_skipped_reason"] = "already_parsed"
             meta["parsing_finished_at"] = _now_iso()
             log.extra_meta = meta
             db.commit()
@@ -411,14 +404,16 @@ def parse_log_file(file_path: str, server: str, log_type: str, upload_id: int) -
 
                         decision = policy.decide(log_type=log_type, raw_line=raw_line, pe=pe)
                         if decision.store:
-                            pe.raw_id = _persist_rawlog(
-                                db,
-                                server=server,
-                                source_hint=decision.source_hint,
-                                raw=raw_line,
-                                log_upload_id=upload_id,
-                                line_no=line_no,
-                            )
+                            persist_raw_db = (os.getenv("PERSIST_RAWLOGS_TO_POSTGRES", "0").strip() in ("1", "true", "True"))
+                            if persist_raw_db:
+                                pe.raw_id = _persist_rawlog(
+                                    db,
+                                    server=server,
+                                    source_hint=decision.source_hint,
+                                    raw=raw_line,
+                                    log_upload_id=upload_id,
+                                    line_no=line_no,
+                                )
                             raw_saved += 1
 
                         # Persistir en PostgreSQL únicamente si PERSIST_EVENTS_TO_POSTGRES=1 (Default: 0 para evitar bloat)
