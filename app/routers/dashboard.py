@@ -1,6 +1,7 @@
 # app/router/dashboard.py
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -20,6 +21,7 @@ from app.models.entity import Entity
 from app.models.log_upload import LogUpload
 from app.models.agent import RegisteredAgent
 
+logger = logging.getLogger("sentinelx.dashboard")
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
