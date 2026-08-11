@@ -16,6 +16,7 @@ from fastapi import (
     Query,
     BackgroundTasks,
     Header,
+    Request,
 )
 from sqlalchemy.orm import Session
 
@@ -24,6 +25,7 @@ from app.models.log_upload import LogUpload
 from app.models.user import User
 from app.models.api_key import ApiKey
 from app.models.agent import RegisteredAgent
+from app.models.tenant import Tenant
 from app.routers.auth import get_current_user
 from app.core.security import verify_api_key
 from app.services.log_pipeline import process_log_file  # ✅ v2: pipeline en services
@@ -261,6 +263,7 @@ async def upload_log(
 # -------------------------------------------------------------------
 @router.post("/ingest")
 async def ingest_log(
+    request: Request,
     background_tasks: BackgroundTasks,
     tag: str = Form(...),
     file: UploadFile = File(...),
@@ -321,7 +324,15 @@ async def ingest_log(
 
     # Auto-registrar / actualizar agente en RegisteredAgent
     try:
+        client_ip = request.client.host if (request and request.client) else None
         tenant_str = str(getattr(api_key, "tenant_id", "default") or "default")
+        
+        tenant_rec = db.query(Tenant).filter(Tenant.id == tenant_str).first()
+        if not tenant_rec:
+            tenant_rec = Tenant(id=tenant_str, name="Default Tenant", status="active")
+            db.add(tenant_rec)
+            db.commit()
+
         ag = db.query(RegisteredAgent).filter(
             RegisteredAgent.hostname == server,
             RegisteredAgent.tenant_id == tenant_str,
@@ -332,6 +343,7 @@ async def ingest_log(
                 tenant_id=tenant_str,
                 name=server,
                 hostname=server,
+                ip_address=client_ip,
                 status="healthy",
                 last_seen_at=now_dt,
             )
@@ -339,8 +351,11 @@ async def ingest_log(
         else:
             ag.status = "healthy"
             ag.last_seen_at = now_dt
+            if client_ip:
+                ag.ip_address = client_ip
         db.commit()
     except Exception as ag_err:
+        logger.warning(f"Error auto-registrando agente {server}: {ag_err}")
         db.rollback()
 
     return {"id": log.id, "status": log.status, "server": server, "log_type": log_type}
