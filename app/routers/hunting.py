@@ -34,6 +34,7 @@ def search_events(
     end_date: Optional[str] = Query(None, description="Fecha de fin ISO 8601"),
     limit: int = Query(50, ge=1, le=500, description="Límite de resultados"),
     offset: int = Query(0, ge=0, description="Desplazamiento para paginación"),
+    search_after: Optional[str] = Query(None, description="Token JSON para paginación profunda search_after en OpenSearch"),
     ctx: AuthContext = Depends(require_permission("ingest.read")),
 ) -> Dict[str, Any]:
     """
@@ -78,22 +79,8 @@ def search_events(
     if q:
         q_clean = q.strip()
         if q_clean.startswith("_id:"):
-            # Búsqueda exacta por OpenSearch system _id
-            target_id = q_clean.split("_id:", 1)[1].strip()
-            exact_event_id = target_id
-            bool_clause["filter"] = bool_clause.get("filter", [])
-            bool_clause["filter"] = (bool_clause["filter"] if isinstance(bool_clause["filter"], list) else [bool_clause["filter"]]) + [{"ids": {"values": [target_id]}}]
-        elif q_clean.startswith("event.id:"):
-            # Búsqueda exacta por campo ECS event.id
-            target_event_id = q_clean.split("event.id:", 1)[1].strip()
-            exact_event_id = target_event_id
-            bool_clause["filter"] = bool_clause.get("filter", [])
-            bool_clause["filter"] = (bool_clause["filter"] if isinstance(bool_clause["filter"], list) else [bool_clause["filter"]]) + [
-                {"bool": {"should": [
-                    {"term": {"event.id": target_event_id}},
-                    {"term": {"event.id.keyword": target_event_id}},
-                ], "minimum_should_match": 1}}
-            ]
+            exact_event_id = q_clean[4:].strip()
+            bool_clause["filter"].append({"term": {"_id": exact_event_id}})
         else:
             bool_clause["must"] = [{"query_string": {"query": q_clean}}]
 
@@ -101,8 +88,18 @@ def search_events(
         "query": {"bool": bool_clause},
         "from": offset,
         "size": limit,
-        "sort": [{"@timestamp": {"order": "desc"}}],
+        "sort": [{"@timestamp": {"order": "desc"}}, {"_id": {"order": "desc"}}],
+        "track_total_hits": True,
     }
+
+    if search_after:
+        try:
+            import json as _json
+            query_body["search_after"] = _json.loads(search_after) if search_after.startswith("[") else [search_after]
+            # When using search_after, from must be 0
+            query_body["from"] = 0
+        except Exception:
+            pass
 
     try:
         client = OpenSearchClient.get_instance()
@@ -116,16 +113,19 @@ def search_events(
         hits_raw = results.get("hits", {}).get("hits", [])
 
         events = []
+        last_sort = None
         for hit in hits_raw:
             src = hit.get("_source", {})
             src["_id"] = hit.get("_id")
             events.append(src)
+            last_sort = hit.get("sort")
 
         return {
             "took_ms": took_ms,
             "total": total_hits,
             "limit": limit,
             "offset": offset,
+            "next_search_after": last_sort,
             "tenant_id": ctx.tenant_id,
             "events": events,
         }

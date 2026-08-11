@@ -247,6 +247,9 @@ curl_upload_file() {
   local filepath="$2"
   local filename="$3"
 
+  local resp_body_file
+  resp_body_file="$(mktemp "${TMP_DIR}/curl_resp.XXXXXX" 2>/dev/null || echo "${TMP_DIR}/curl_resp.tmp")"
+
   local curl_args=(
     -sS
     --connect-timeout "$CONNECT_TIMEOUT"
@@ -254,23 +257,47 @@ curl_upload_file() {
     -H "X-API-Key: ${SENTINELX_API_KEY}"
     -F "tag=${tag}"
     -F "file=@${filepath};filename=${filename}"
-    -o /dev/null
-    -w "%{http_code}"
+    -o "$resp_body_file"
+    -w "\n%{http_code}"
   )
 
   if [[ -n "$LIMIT_RATE" ]]; then
     curl_args+=(--limit-rate "$LIMIT_RATE")
   fi
 
+  local curl_exit=0
+  local curl_out
+  curl_out="$(curl "${curl_args[@]}" "$SENTINELX_INGEST_URL" 2>&1)" || curl_exit=$?
+
   local http_code
-  http_code="$(curl "${curl_args[@]}" "$SENTINELX_INGEST_URL" || true)"
+  http_code="$(echo "$curl_out" | tail -n1 | grep -E '^[0-9]{3}$' || echo "000")"
   LAST_HTTP_CODE="$http_code"
+  LAST_CURL_EXIT="$curl_exit"
 
   if [[ "$http_code" == "200" || "$http_code" == "201" || "$http_code" == "202" ]]; then
+    rm -f "$resp_body_file" 2>/dev/null || true
     return 0
   fi
 
-  log "ERROR upload tag=${tag} file=${filename} http_code=${http_code}"
+  local body_snippet=""
+  if [[ -f "$resp_body_file" ]]; then
+    body_snippet="$(head -c 150 "$resp_body_file" | tr '\n' ' ' | tr -d '\r')"
+    rm -f "$resp_body_file" 2>/dev/null || true
+  fi
+
+  local failure_reason="unknown"
+  case "$http_code" in
+    000) failure_reason="NETWORK_TIMEOUT_OR_CONNECTION_REFUSED (curl_exit=${curl_exit})" ;;
+    400) failure_reason="BAD_REQUEST (payload corrupt or invalid tag)" ;;
+    401|403) failure_reason="AUTH_FAILURE (invalid API Key)" ;;
+    413) failure_reason="PAYLOAD_TOO_LARGE (exceeds webserver body limit)" ;;
+    429) failure_reason="RATE_LIMITED (too many requests)" ;;
+    500|502|503|504) failure_reason="BACKEND_SERVER_ERROR (HTTP ${http_code})" ;;
+    *) failure_reason="HTTP_ERROR_${http_code}" ;;
+  esac
+
+  LAST_FAILURE_REASON="$failure_reason"
+  log "ERROR upload tag=${tag} file=${filename} http_code=${http_code} curl_exit=${curl_exit} reason=[${failure_reason}] response=[${body_snippet}]"
   return 1
 }
 
@@ -560,7 +587,7 @@ flush_spool() {
         rm -rf "$job"
         continue
       fi
-      log "STOP flush_spool due to send failure (HTTP ${LAST_HTTP_CODE:-unknown})"
+      log "STOP flush_spool due to send failure (job=$(basename "$job"), HTTP ${LAST_HTTP_CODE:-unknown}, curl_exit=${LAST_CURL_EXIT:-0}, reason=[${LAST_FAILURE_REASON:-unknown}])"
       if [[ "$RESET_ON_SEND_FAILURE" == "1" ]]; then
         reset_for_next_run_due_to_failure
       fi
@@ -877,7 +904,7 @@ main() {
       purge_spool
       reset_states
     else
-      log "WARN final_flush_failed: spool PRESERVADO. Se reintentará en la próxima ejecución."
+      log "WARN final_flush_failed: spool PRESERVADO (HTTP ${LAST_HTTP_CODE:-000}, curl_exit=${LAST_CURL_EXIT:-0}, reason=[${LAST_FAILURE_REASON:-unknown}]). Se reintentará en la próxima ejecución."
     fi
     log "END (final flush failed - spool preserved)"
     return 0
