@@ -190,8 +190,17 @@ def _utc(dt: Optional[datetime]) -> Optional[datetime]:
     return dt.astimezone(timezone.utc)
 
 
+_SOURCE_ALIASES = {
+    "SAR_STATS": "SAR",
+    "SYSTEM_SECURE": "SSH_SECURE",
+    "SECURE": "SSH_SECURE",
+    "SYSTEM_MESSAGES": "SYSTEM",
+}
+
+
 def _norm_source(v: Optional[str]) -> str:
-    return (v or "").strip().upper()
+    s = (v or "").strip().upper()
+    return _SOURCE_ALIASES.get(s, s)
 
 
 def _norm_event_type(v: Optional[str]) -> str:
@@ -214,15 +223,9 @@ def _ip_subnet(ip: Optional[str], prefix: int = 24) -> Optional[str]:
         return None
 
 
-def _get_from_event(event: EventLike, path: str) -> Any:
+def _get_from_event_raw(event: EventLike, path: str) -> Any:
     if not path:
         return None
-
-    if path == "ip_subnet24":
-        return _ip_subnet(_as_str(_get_from_event(event, "ip_client")).strip() or None, 24)
-    if path == "ip_subnet16":
-        return _ip_subnet(_as_str(_get_from_event(event, "ip_client")).strip() or None, 16)
-
     parts = path.split(".")
     cur: Any = event
     for p in parts:
@@ -235,6 +238,55 @@ def _get_from_event(event: EventLike, path: str) -> Any:
         else:
             return None
     return cur
+
+
+def _get_from_event(event: EventLike, path: str) -> Any:
+    if not path:
+        return None
+
+    if path == "ip_subnet24":
+        return _ip_subnet(_as_str(_get_from_event(event, "ip_client")).strip() or None, 24)
+    if path == "ip_subnet16":
+        return _ip_subnet(_as_str(_get_from_event(event, "ip_client")).strip() or None, 16)
+
+    if path in ("ip_client", "ip"):
+        val = (
+            _get_from_event_raw(event, "ip_client")
+            or _get_from_event_raw(event, "source.ip")
+            or _get_from_event_raw(event, "client.ip")
+        )
+        if val is not None:
+            return val
+
+    if path in ("username", "user"):
+        val = (
+            _get_from_event_raw(event, "username")
+            or _get_from_event_raw(event, "user.name")
+        )
+        if val is not None:
+            return val
+
+    if path in ("extra.action", "action"):
+        val = (
+            _get_from_event_raw(event, "extra.action")
+            or _get_from_event_raw(event, "event.action")
+            or _get_from_event_raw(event, "event.outcome")
+        )
+        if val == "failure":
+            return "fail"
+        if val is not None:
+            return val
+
+    if path in ("extra.protocol", "protocol"):
+        val = (
+            _get_from_event_raw(event, "extra.protocol")
+            or _get_from_event_raw(event, "network.protocol")
+            or _get_from_event_raw(event, "service.name")
+        )
+        if val is not None:
+            return val
+
+    return _get_from_event_raw(event, path)
 
 
 def _to_number(v: Any) -> Optional[float]:
