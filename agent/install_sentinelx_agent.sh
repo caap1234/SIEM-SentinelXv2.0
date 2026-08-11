@@ -6,7 +6,7 @@ AGENT_BIN="/usr/local/bin/sentinelx-agent.sh"
 ENV_FILE="/etc/sentinelx-agent.env"
 LOG_FILE="/var/log/sentinelx-agent.log"
 CRON_CMD="ENV_FILE=/etc/sentinelx-agent.env /usr/local/bin/sentinelx-agent.sh >> /var/log/sentinelx-agent.log 2>&1"
-CRON_EXPR="*/15 * * * *"
+CRON_EXPR="*/3 * * * *"
 
 echo "============================================================"
 echo "    SentinelX SIEM — Instalación del Agente de Log Ingest"

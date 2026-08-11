@@ -361,7 +361,8 @@ curl_upload_file() {
   local body_snippet=""
   if [[ -f "$resp_body_file" ]]; then
     body_snippet="$(head -c 150 "$resp_body_file" | tr '
-' ' ' | tr -d '')"
+' ' ' | tr -d '
+')"
     rm -f "$resp_body_file" 2>/dev/null || true
   fi
 
@@ -428,8 +429,7 @@ with open(p, "rb") as f:
     f.seek(start)
     buf = f.read(off - start)
 
-idx = buf.rfind(b"
-")
+idx = buf.rfind(b"\n")
 if idx != -1:
     print(start + idx + 1)
 else:
@@ -465,8 +465,7 @@ with open(p, "rb") as f:
     f.seek(win_start)
     data = f.read(proposed_end - win_start)
 
-idx = data.rfind(b"
-")
+idx = data.rfind(b"\n")
 if idx != -1:
     end = win_start + idx + 1
     if end > cursor:
@@ -477,8 +476,7 @@ if fwd_end > proposed_end:
     with open(p, "rb") as f:
         f.seek(proposed_end)
         data2 = f.read(fwd_end - proposed_end)
-    j = data2.find(b"
-")
+    j = data2.find(b"\n")
     if j != -1:
         print(proposed_end + j + 1); raise SystemExit
 
@@ -531,8 +529,7 @@ with open(p, "rb") as f:
     f.seek(start)
     buf = f.read(size - start)
 
-if b"
-" not in buf:
+if b"\n" not in buf:
     print(max(0, size - fallback_bytes))
     raise SystemExit
 
@@ -930,7 +927,8 @@ main() {
   load_start="$(get_load_1min)"
   TELEMETRY_LOAD_PEAK="$load_start"
 
-  log "START mode=${mode_detected} first_run=tail_lines context_lines=${FIRST_RUN_CONTEXT_LINES} scan_mb=${FIRST_RUN_SCAN_MB} fallback_mb=${FIRST_RUN_BACKFILL_MB} max_first_run_mb=${FIRST_RUN_MAX_TOTAL_MB} chunk_mb=${CHUNK_MB} max_seconds=${MAX_SECONDS_PER_RUN} python=$("$PYTHON_BIN" -V 2>&1 | tr -d '')"
+  log "START mode=${mode_detected} first_run=tail_lines context_lines=${FIRST_RUN_CONTEXT_LINES} scan_mb=${FIRST_RUN_SCAN_MB} fallback_mb=${FIRST_RUN_BACKFILL_MB} max_first_run_mb=${FIRST_RUN_MAX_TOTAL_MB} chunk_mb=${CHUNK_MB} max_seconds=${MAX_SECONDS_PER_RUN} python=$("$PYTHON_BIN" -V 2>&1 | tr -d '
+')"
 
   check_spool_size || true
 
