@@ -40,21 +40,33 @@ import logging
 logger = logging.getLogger("sentinelx.log_pipeline")
 
 
-def _publish_event_to_nats_sync(event: NormalizedEvent) -> None:
-    """Publica sincrónicamente un evento normalizado en NATS JetStream."""
+def _publish_batch_to_nats_sync(events: List[NormalizedEvent]) -> None:
+    """Publica sincrónicamente un lote de eventos normalizados en NATS JetStream."""
+    if not events:
+        return
     try:
         import asyncio
-        srv = NatsService.get_instance()
+        async def _pub_all():
+            srv = NatsService.get_instance()
+            if not srv._connected or not srv.js:
+                await srv.connect()
+            if srv.js:
+                for ev in events:
+                    try:
+                        await srv.publish_normalized_event(ev)
+                    except Exception as err:
+                        logger.debug("Error publicando evento en batch NATS: %s", err)
+
         try:
             loop = asyncio.get_running_loop()
-            asyncio.create_task(srv.publish_normalized_event(event))
+            asyncio.create_task(_pub_all())
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(srv.publish_normalized_event(event))
+            loop.run_until_complete(_pub_all())
             loop.close()
     except Exception as e:
-        logger.debug("NATS sync publish notice: %s", e)
+        logger.debug("NATS sync batch publish notice: %s", e)
 
 
 # =======================
@@ -341,6 +353,7 @@ def parse_log_file(file_path: str, server: str, log_type: str, upload_id: int) -
 
     events_created = raw_saved = 0
     lines_total = lines_parsed = lines_skipped = lines_failed = 0
+    nats_batch_events: List[NormalizedEvent] = []
 
     try:
         log = db.query(LogUpload).filter(LogUpload.id == upload_id).first()
@@ -410,13 +423,13 @@ def parse_log_file(file_path: str, server: str, log_type: str, upload_id: int) -
 
                         _persist_event(db, pe, inferred_domain=inferred_domain)
 
-                        # Publicar evento canónico a NATS JetStream (para OpenSearch & Evidencia S3)
+                        # Acumular evento canónico para publicación masiva por lotes a NATS (OpenSearch & S3)
                         try:
                             tenant_str = str(log.tenant_id or "default") if log else "default"
                             norm_ev = pe.to_normalized_event(tenant_id=tenant_str)
-                            _publish_event_to_nats_sync(norm_ev)
+                            nats_batch_events.append(norm_ev)
                         except Exception as nats_err:
-                            logger.debug("NATS JetStream event publish skipped: %s", nats_err)
+                            logger.debug("NATS event conversion notice: %s", nats_err)
 
                         events_created += 1
                         lines_parsed += 1
@@ -444,8 +457,16 @@ def parse_log_file(file_path: str, server: str, log_type: str, upload_id: int) -
 
                 if events_created and (events_created % BATCH_EVENTS == 0):
                     db.commit()
+                    if nats_batch_events:
+                        _publish_batch_to_nats_sync(nats_batch_events)
+                        nats_batch_events = []
 
         db.commit()
+
+        # Flush final del lote pendiente de NATS JetStream
+        if nats_batch_events:
+            _publish_batch_to_nats_sync(nats_batch_events)
+            nats_batch_events = []
 
         log = db.query(LogUpload).filter(LogUpload.id == upload_id).first()
         if log:
