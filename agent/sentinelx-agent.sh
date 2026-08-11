@@ -580,7 +580,9 @@ flush_spool() {
       fi
 
       rm -rf "$job"
-      [[ "$SLEEP_BETWEEN" != "0" ]] && sleep "$SLEEP_BETWEEN"
+      if [[ "$SLEEP_BETWEEN" != "0" ]]; then
+        sleep "$SLEEP_BETWEEN"
+      fi
     else
       if [[ "${LAST_HTTP_CODE:-}" == "400" || "${LAST_HTTP_CODE:-}" == "422" ]]; then
         log "WARN discarding unprocessable spool job (HTTP ${LAST_HTTP_CODE}): $(basename "$job")"
@@ -594,6 +596,8 @@ flush_spool() {
       return 1
     fi
   done
+
+  return 0
 }
 
 # ------------------------------------------------------------
