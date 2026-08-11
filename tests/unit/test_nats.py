@@ -26,6 +26,7 @@ async def test_nats_service_publish_event_success():
     mock_js = AsyncMock()
     mock_ack = AsyncMock()
     mock_ack.stream = STREAM_NORMALIZED
+    mock_ack.seq = 100
     mock_ack.sequence = 100
     mock_js.publish.return_value = mock_ack
     service.js = mock_js
