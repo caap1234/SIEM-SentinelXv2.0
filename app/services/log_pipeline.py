@@ -33,6 +33,28 @@ from app.parsing.maillog_dovecot import MaillogDovecotParser
 
 from app.services.raw_policy import RawPolicy
 from app.enrichment.geoip_enricher import enrich_ip_into_extra
+from app.services.nats_service import NatsService
+from app.schemas.normalized_event import NormalizedEvent
+
+import logging
+logger = logging.getLogger("sentinelx.log_pipeline")
+
+
+def _publish_event_to_nats_sync(event: NormalizedEvent) -> None:
+    """Publica sincrónicamente un evento normalizado en NATS JetStream."""
+    try:
+        import asyncio
+        srv = NatsService.get_instance()
+        try:
+            loop = asyncio.get_running_loop()
+            asyncio.create_task(srv.publish_normalized_event(event))
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(srv.publish_normalized_event(event))
+            loop.close()
+    except Exception as e:
+        logger.debug("NATS sync publish notice: %s", e)
 
 
 # =======================
@@ -387,6 +409,14 @@ def parse_log_file(file_path: str, server: str, log_type: str, upload_id: int) -
                             raw_saved += 1
 
                         _persist_event(db, pe, inferred_domain=inferred_domain)
+
+                        # Publicar evento canónico a NATS JetStream (para OpenSearch & Evidencia S3)
+                        try:
+                            tenant_str = str(log.tenant_id or "default") if log else "default"
+                            norm_ev = pe.to_normalized_event(tenant_id=tenant_str)
+                            _publish_event_to_nats_sync(norm_ev)
+                        except Exception as nats_err:
+                            logger.debug("NATS JetStream event publish skipped: %s", nats_err)
 
                         events_created += 1
                         lines_parsed += 1

@@ -178,6 +178,48 @@ services:
     command: >
       bash -lc "python -m app.workers.engine_worker_loop"
 
+  opensearch_worker:
+    build:
+      context: .
+    restart: unless-stopped
+    depends_on:
+      nats:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NATS_URL: "nats://nats:4222"
+      OPENSEARCH_URL: "http://opensearch:9200"
+    volumes:
+      - .:/app
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    command: >
+      bash -lc "python -m app.workers.opensearch_indexer_worker"
+
+  evidence_worker:
+    build:
+      context: .
+    restart: unless-stopped
+    depends_on:
+      nats:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NATS_URL: "nats://nats:4222"
+      MINIO_ENDPOINT: "http://minio:9000"
+    volumes:
+      - .:/app
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    command: >
+      bash -lc "python -m app.workers.minio_evidence_worker"
+
 volumes:
   pgdata:
   natsdata:
