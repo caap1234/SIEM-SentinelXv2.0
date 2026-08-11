@@ -81,9 +81,15 @@ class ParsedEvent:
         if not isinstance(proc_data, dict):
             proc_data = {}
 
-        rule_data = extra.get("rule") if isinstance(extra, dict) else {}
-        if not isinstance(rule_data, dict):
-            rule_data = {}
+        geo_data = extra.get("geo") if isinstance(extra, dict) else {}
+        if not isinstance(geo_data, dict):
+            geo_data = extra.get("geoip") if isinstance(extra, dict) else {}
+        if not isinstance(geo_data, dict):
+            geo_data = {}
+
+        asn_data = extra.get("asn") if isinstance(extra, dict) else {}
+        if not isinstance(asn_data, dict):
+            asn_data = {}
 
         user_name = (
             self.username
@@ -94,6 +100,12 @@ class ParsedEvent:
 
         http_method = http_data.get("method") or panel_data.get("http_method")
         http_status = http_data.get("status") or panel_data.get("status_code")
+
+        labels_map: Dict[str, str] = {}
+        if isinstance(extra, dict) and isinstance(extra.get("metric"), dict):
+            for mk, mv in extra["metric"].items():
+                if mv is not None:
+                    labels_map[str(mk)] = str(mv)
 
         return NormalizedEvent(
             timestamp_utc=self.timestamp_utc,
@@ -115,7 +127,9 @@ class ParsedEvent:
             source=SourceMeta(
                 ip=self.ip_client or extra.get("source_ip"),
                 port=extra.get("source_port"),
-                geo_country_iso_code=extra.get("country_iso"),
+                geo_country_iso_code=geo_data.get("country_code") or extra.get("country_iso"),
+                as_number=asn_data.get("number"),
+                as_organization_name=asn_data.get("org") or asn_data.get("organization"),
             ),
             destination=DestinationMeta(
                 ip=self.ip_server,
@@ -133,17 +147,18 @@ class ParsedEvent:
                 referrer=http_data.get("referer"),
             ),
             email=EmailMeta(
-                from_address=email_data.get("from") or extra.get("mail_from"),
-                to_address=email_data.get("to") or extra.get("rcpt"),
-                subject=email_data.get("subject"),
-                queue_id=email_data.get("queue_id") or extra.get("exim_id"),
-                authenticated_user=email_data.get("auth_user") or self.username,
+                from_address=email_data.get("from") or extra.get("mail_from") or extra.get("from") or extra.get("sender"),
+                to_address=email_data.get("to") or extra.get("rcpt") or extra.get("to") or extra.get("recipient"),
+                subject=email_data.get("subject") or extra.get("subject"),
+                queue_id=email_data.get("queue_id") or extra.get("exim_id") or extra.get("msgid"),
+                authenticated_user=email_data.get("auth_user") or extra.get("auth_user") or self.username,
             ),
             file=FileMeta(
                 path=file_data.get("path"),
                 name=file_data.get("name"),
                 hash_sha256=file_data.get("sha256"),
             ),
+            labels=labels_map,
             process=ProcessMeta(
                 pid=proc_data.get("pid"),
                 name=proc_data.get("name"),
