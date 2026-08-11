@@ -42,6 +42,7 @@ class OpenSearchIndexerWorker:
         self.running = False
         self.nats_service = NatsService.get_instance()
         self.opensearch_client = OpenSearchClient.get_instance()
+        self._psub: Any = None
 
     async def process_batch(self, messages: List[Any]) -> Tuple[int, int, int]:
         """
@@ -138,14 +139,16 @@ class OpenSearchIndexerWorker:
                 return 0, 0, 0
 
         try:
-            psub = await self.nats_service.js.pull_subscribe(
-                subject=SUBJECT_NORMALIZED_HOSTING,
-                durable=self.consumer_name,
-                stream=self.stream_name,
-            )
-            messages = await psub.fetch(batch=self.batch_size, timeout=self.batch_timeout)
+            if self._psub is None:
+                self._psub = await self.nats_service.js.pull_subscribe(
+                    subject=SUBJECT_NORMALIZED_HOSTING,
+                    durable=self.consumer_name,
+                    stream=self.stream_name,
+                )
+            messages = await self._psub.fetch(batch=self.batch_size, timeout=self.batch_timeout)
             return await self.process_batch(messages)
         except Exception as e:
+            self._psub = None
             # Timeout normal cuando no hay mensajes nuevos en la cola
             if "timeout" not in str(e).lower():
                 logger.debug("Info/Timeout en fetch de NATS: %s", e)

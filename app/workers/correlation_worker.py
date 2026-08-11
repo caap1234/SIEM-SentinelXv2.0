@@ -38,6 +38,7 @@ class CorrelationWorker:
         self.running = False
         self.nats_service = NatsService.get_instance()
         self.engine = CorrelationEngine.get_instance()
+        self._psub: Any = None
 
     async def process_batch(self, messages: List[Any]) -> Tuple[int, int]:
         """
@@ -115,14 +116,16 @@ class CorrelationWorker:
                 return 0, 0
 
         try:
-            psub = await self.nats_service.js.pull_subscribe(
-                subject=SUBJECT_NORMALIZED_HOSTING,
-                durable=self.consumer_name,
-                stream=self.stream_name,
-            )
-            messages = await psub.fetch(batch=self.batch_size, timeout=self.batch_timeout)
+            if self._psub is None:
+                self._psub = await self.nats_service.js.pull_subscribe(
+                    subject=SUBJECT_NORMALIZED_HOSTING,
+                    durable=self.consumer_name,
+                    stream=self.stream_name,
+                )
+            messages = await self._psub.fetch(batch=self.batch_size, timeout=self.batch_timeout)
             return await self.process_batch(messages)
         except Exception as e:
+            self._psub = None
             if "timeout" not in str(e).lower():
                 logger.debug("Info/Timeout en fetch de correlación NATS: %s", e)
             return 0, 0
