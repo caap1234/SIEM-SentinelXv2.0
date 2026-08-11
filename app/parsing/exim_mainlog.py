@@ -27,8 +27,8 @@ EXIM_AUTH_SUBMISSION_OK = re.compile(
 # Inbound (remote or local) message accepted. Support [IP] and [IP]:PORT
 EXIM_INBOUND = re.compile(
     r"(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}).*"
-    r"<=\s+(?P<from>\S+)\s+.*?"
-    r"(?:\sH=[^\s]+\s+\[(?P<ip>\d+\.\d+\.\d+\.\d+)\](?::\d+)?)?"
+    r"<=\s+(?P<from>\S+)\s+"
+    r"(?:.*?\bH=\S*\s*\[(?P<ip>\d+\.\d+\.\d+\.\d+)\](?::\d+)?)?"
     r".*?(?:\sP=(?P<proto>[^\s]+))?",
     re.IGNORECASE,
 )

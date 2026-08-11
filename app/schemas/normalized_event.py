@@ -142,6 +142,32 @@ class LogMeta(BaseModel):
     original: Optional[str] = Field(default=None, description="Línea cruda original")
 
 
+class MetricMeta(BaseModel):
+    """
+    Extensión canónica propia de SentinelX para métricas numéricas de rendimiento (ECS Custom Extension).
+    Garantiza tipado estricto float/int para agregaciones y consultas de rango en OpenSearch.
+    """
+    family: Optional[str] = Field(default=None, description="Familia de métricas (e.g., sar, system)")
+    name: Optional[str] = Field(default=None, description="Nombre específico de la métrica (e.g., load, memory, disk)")
+    cpu_count: Optional[int] = Field(default=None, description="Número de núcleos de CPU")
+    runq_sz: Optional[float] = Field(default=None, description="Procesos en cola de ejecución (runq-sz)")
+    plist_sz: Optional[float] = Field(default=None, description="Procesos totales en lista (plist-sz)")
+    blocked: Optional[float] = Field(default=None, description="Procesos bloqueados en I/O (blocked)")
+    ldavg_1: Optional[float] = Field(default=None, description="Carga promedio CPU a 1 min (ldavg_1)")
+    ldavg_5: Optional[float] = Field(default=None, description="Carga promedio CPU a 5 min (ldavg_5)")
+    ldavg_15: Optional[float] = Field(default=None, description="Carga promedio CPU a 15 min (ldavg_15)")
+    ldavg_1_per_cpu: Optional[float] = Field(default=None, description="Carga a 1 min normalizada por núcleo de CPU")
+    ldavg_5_per_cpu: Optional[float] = Field(default=None, description="Carga a 5 min normalizada por núcleo de CPU")
+    ldavg_15_per_cpu: Optional[float] = Field(default=None, description="Carga a 15 min normalizada por núcleo de CPU")
+    kb_mem_free: Optional[int] = Field(default=None, description="Memoria RAM libre en KB")
+    kb_mem_used: Optional[int] = Field(default=None, description="Memoria RAM usada en KB")
+    kb_mem_avail: Optional[int] = Field(default=None, description="Memoria RAM disponible en KB")
+    mem_used_pct: Optional[float] = Field(default=None, description="Porcentaje de uso de memoria RAM (0.0 - 100.0)")
+    device: Optional[str] = Field(default=None, description="Dispositivo de disco (e.g., sda, sdb, nvme0n1)")
+    tps: Optional[float] = Field(default=None, description="Transacciones por segundo en disco")
+    util_pct: Optional[float] = Field(default=None, description="Porcentaje de utilización I/O de disco")
+
+
 class NormalizedEvent(BaseModel):
     """
     Contrato Canónico Oficial de Eventos de SentinelX-SIEM (ECS-compliant).
@@ -173,6 +199,7 @@ class NormalizedEvent(BaseModel):
 
     rule: RuleMeta = Field(default_factory=RuleMeta)
     log: LogMeta = Field(default_factory=LogMeta)
+    metric: MetricMeta = Field(default_factory=MetricMeta, description="Métricas numéricas de sistema (SAR)")
 
     labels: Dict[str, str] = Field(default_factory=dict, description="Etiquetas clave-valor adicionales")
     tags: List[str] = Field(default_factory=list, description="Lista de tags")

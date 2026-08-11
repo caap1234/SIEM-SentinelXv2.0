@@ -175,6 +175,29 @@ ECS_COMPONENT_MAPPINGS: Dict[str, Any] = {
                 "original": {"type": "text"},
             }
         },
+        "metric": {
+            "properties": {
+                "family": {"type": "keyword"},
+                "name": {"type": "keyword"},
+                "cpu_count": {"type": "integer"},
+                "runq_sz": {"type": "double"},
+                "plist_sz": {"type": "double"},
+                "blocked": {"type": "double"},
+                "ldavg_1": {"type": "double"},
+                "ldavg_5": {"type": "double"},
+                "ldavg_15": {"type": "double"},
+                "ldavg_1_per_cpu": {"type": "double"},
+                "ldavg_5_per_cpu": {"type": "double"},
+                "ldavg_15_per_cpu": {"type": "double"},
+                "kb_mem_free": {"type": "long"},
+                "kb_mem_used": {"type": "long"},
+                "kb_mem_avail": {"type": "long"},
+                "mem_used_pct": {"type": "double"},
+                "device": {"type": "keyword"},
+                "tps": {"type": "double"},
+                "util_pct": {"type": "double"},
+            }
+        },
         "labels": {"type": "object"},
         "tags": {"type": "keyword"},
     }

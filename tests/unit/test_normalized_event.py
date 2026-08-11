@@ -100,3 +100,150 @@ def test_cpanel_parser_to_normalized_event():
     assert norm.source.ip == "198.51.100.40"
     assert norm.user.name == "cpaneluser"
     assert norm.http.status_code == 200
+
+
+def test_sar_stats_parser_numeric_metrics():
+    from app.parsing.sar_stats import SarStatsParser
+    parser = SarStatsParser()
+    parser.parse_line("SAR_DATE=2026-08-11", server="srv-1")
+    parser.parse_line("SAR_MODE=-q", server="srv-1")
+    
+    # sar -q line
+    line_q = "09:00:01 AM       2      150      8.45      6.20      4.10         0"
+    norm_q = parser.parse_line_normalized(line_q, server="srv-1")
+    assert norm_q is not None
+    assert isinstance(norm_q.metric.ldavg_1, float)
+    assert norm_q.metric.ldavg_1 == 8.45
+    assert norm_q.metric.ldavg_5 == 6.20
+    assert norm_q.metric.runq_sz == 2.0
+
+    # sar -r line
+    parser.parse_line("SAR_MODE=-r", server="srv-1")
+    line_r = "09:00:01 AM   4000000  12000000   8000000     66.67"
+    norm_r = parser.parse_line_normalized(line_r, server="srv-1")
+    assert norm_r is not None
+    assert isinstance(norm_r.metric.mem_used_pct, float)
+    assert norm_r.metric.mem_used_pct == 66.67
+    assert norm_r.metric.kb_mem_free == 4000000
+
+    # sar -d line
+    parser.parse_line("SAR_MODE=-d", server="srv-1")
+    line_d = "09:00:01 AM       dev10-0    120.50      85.4"
+    norm_d = parser.parse_line_normalized(line_d, server="srv-1")
+    assert norm_d is not None
+    assert norm_d.metric.device == "dev10-0"
+    assert norm_d.metric.tps == 120.50
+    assert norm_d.metric.util_pct == 85.4
+
+
+def test_private_ip_scope_no_prv_country_code():
+    from app.parsing.apache_access import ApacheAccessParser
+    from app.enrichment.geoip_enricher import enrich_ip_into_extra
+
+    parser = ApacheAccessParser()
+    line = '192.168.1.50 - - [09/Aug/2026:12:00:00 +0000] "GET /index.html HTTP/1.1" 200 500 "-" "Mozilla"'
+    pe = parser.parse_line(line, server="srv-local")
+    assert pe is not None
+    pe.extra = enrich_ip_into_extra(ip=pe.ip_client, extra=pe.extra)
+    norm = pe.to_normalized_event()
+
+    assert norm.source.ip == "192.168.1.50"
+    assert norm.source.geo_country_iso_code is None
+    assert norm.labels.get("ip_scope") == "private"
+
+
+def test_exim_parser_multi_formats():
+    parser = EximMainlogParser()
+
+    # 1. Inbound <=
+    l_inbound = '2026-08-11 10:00:00 1a2b3c-4d5e6f-7g <= sender@domain.com H=mail.remote.com [198.51.100.25] P=esmtps S=1500'
+    norm_in = parser.parse_line_normalized(l_inbound, server="srv-mail")
+    assert norm_in is not None
+    assert norm_in.email.from_address == "sender@domain.com"
+    assert norm_in.source.ip == "198.51.100.25"
+
+    # 2. Outbound =>
+    l_outbound = '2026-08-11 10:01:00 1a2b3c-4d5e6f-7g => rcpt@target.com H=mail.target.com [198.51.100.35] C="250 OK"'
+    norm_out = parser.parse_line_normalized(l_outbound, server="srv-mail")
+    assert norm_out is not None
+    assert norm_out.email.to_address == "rcpt@target.com"
+    assert norm_out.event.outcome == "success"
+
+    # 3. Auth Failed
+    l_auth_fail = '2026-08-11 10:02:00 dovecot_login authenticator failed for (user) [198.51.100.45]: 535 Incorrect authentication data'
+    norm_af = parser.parse_line_normalized(l_auth_fail, server="srv-mail")
+    assert norm_af is not None
+    assert norm_af.source.ip == "198.51.100.45"
+    assert norm_af.event.outcome == "failure"
+
+
+def test_secure_ssh_parser_formats():
+    from app.parsing.system_secure import SecureLogParser
+    parser = SecureLogParser()
+
+    # SSH Auth Fail
+    l_fail = "Aug 11 10:00:00 srv-ssh sshd[1234]: Failed password for root from 198.51.100.88 port 54321 ssh2"
+    norm_f = parser.parse_line_normalized(l_fail, server="srv-ssh")
+    assert norm_f is not None
+    assert norm_f.source.ip == "198.51.100.88"
+    assert norm_f.source.port == 54321
+    assert norm_f.user.name == "root"
+    assert norm_f.event.outcome == "failure"
+
+    # SSH Auth Accept
+    l_ok = "Aug 11 10:05:00 srv-ssh sshd[1235]: Accepted password for adminuser from 198.51.100.88 port 54322 ssh2"
+    norm_ok = parser.parse_line_normalized(l_ok, server="srv-ssh")
+    assert norm_ok is not None
+    assert norm_ok.source.ip == "198.51.100.88"
+    assert norm_ok.user.name == "adminuser"
+    assert norm_ok.event.outcome == "success"
+
+
+def test_modsec_audit_parser():
+    from app.parsing.modsec_audit import ModSecAuditParser
+    parser = ModSecAuditParser()
+
+    lines = [
+        "--12345678-A--",
+        "[11/Aug/2026:10:00:00 +0000] txid123 198.51.100.99 12345 10.0.0.1 80",
+        "--12345678-B--",
+        "POST /wp-login.php HTTP/1.1",
+        "Host: example.com",
+        "--12345678-F--",
+        "HTTP/1.1 403 Forbidden",
+        "--12345678-H--",
+        'Message: Warning. Pattern match "SELECT" at ARGS:user. [id "942100"] [msg "SQLi Detected"]',
+        "--12345678-Z--",
+    ]
+    norm = None
+    for l in lines:
+        pe = parser.parse_line(l, server="srv-waf")
+        if pe:
+            norm = pe.to_normalized_event()
+
+    assert norm is not None
+    assert norm.source.ip == "198.51.100.99"
+    assert norm.http.method == "POST"
+
+
+def test_lfd_log_parser():
+    from app.parsing.lfd_log import LfdLogParser
+    parser = LfdLogParser()
+
+    line = "Aug 11 10:00:00 srv-lfd lfd[999]: (sshd) Failed SSH login from 198.51.100.77 (US/United States/198.51.100.77): 5 in the last 300 secs - *Blocked in iptables*"
+    norm = parser.parse_line_normalized(line, server="srv-lfd")
+    assert norm is not None
+    assert norm.source.ip == "198.51.100.77"
+
+
+def test_filemanager_parser():
+    from app.parsing.filemanager import FileManagerParser
+    parser = FileManagerParser()
+
+    line = '2026-08-11 10:00:00 user=cpaneluser ip=198.51.100.66 action=upload path=/public_html/shell.php size=2048'
+    norm = parser.parse_line_normalized(line, server="srv-panel")
+    assert norm is not None
+    assert norm.user.name == "cpaneluser"
+    assert norm.file.path == "/public_html/shell.php"
+    assert norm.source.ip == "198.51.100.66"
+

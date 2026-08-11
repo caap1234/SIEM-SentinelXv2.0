@@ -21,24 +21,36 @@ from app.parsing.wp_error_log import WpErrorLogParser
 from app.parsing.maillog_dovecot import MaillogDovecotParser
 from app.parsing.imunify360 import Imunify360Parser
 from app.parsing.auditd_log import AuditdParser
+from app.parsing.filemanager import FileManagerParser
 
 
 DEFAULT_PARSERS: Dict[str, LogParser] = {
     "APACHE_ACCESS": ApacheAccessParser(),
     "NGINX_ACCESS": NginxAccessParser(),
     "APACHE_ERROR": ApacheErrorLogParser(),
+    "NGINX_ERROR": ApacheErrorLogParser(),
     "PANEL_ACCESS": CPanelAccessParser(),
     "PANEL_LOGIN": PanelLogParser(),
     "EXIM_MAINLOG": EximMainlogParser(),
+    "EXIM_REJECTLOG": EximMainlogParser(),
     "MAILLOG": MaillogDovecotParser(),
+    "DOVECOT": MaillogDovecotParser(),
     "LFD": LfdLogParser(),
+    "CSF": LfdLogParser(),
     "MODSEC": ModSecAuditParser(),
     "SAR_STATS": SarStatsParser(),
+    "SAR": SarStatsParser(),
     "SYSTEM": SystemLogParser(),
+    "MESSAGES": SystemLogParser(),
+    "SYSLOG": SystemLogParser(),
     "SSH_SECURE": SecureLogParser(),
+    "SECURE": SecureLogParser(),
+    "SSH": SecureLogParser(),
     "WP_ERROR": WpErrorLogParser(),
+    "WP_ERROR_LOG": WpErrorLogParser(),
     "IMUNIFY360": Imunify360Parser(),
     "AUDITD": AuditdParser(),
+    "FILEMANAGER": FileManagerParser(),
 }
 
 

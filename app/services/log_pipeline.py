@@ -30,6 +30,9 @@ from app.parsing.panel_logs import PanelLogParser
 from app.parsing.wp_error_log import WpErrorLogParser
 from app.parsing.sar_stats import SarStatsParser
 from app.parsing.maillog_dovecot import MaillogDovecotParser
+from app.parsing.imunify360 import Imunify360Parser
+from app.parsing.auditd_log import AuditdParser
+from app.parsing.filemanager import FileManagerParser
 
 from app.services.raw_policy import RawPolicy
 from app.enrichment.geoip_enricher import enrich_ip_into_extra
@@ -77,16 +80,29 @@ PARSER_MAP: Dict[str, Type] = {
     "apache_access": ApacheAccessParser,
     "nginx_access": NginxAccessParser,
     "apache_error": ApacheErrorLogParser,
+    "nginx_error": ApacheErrorLogParser,
     "exim_mainlog": EximMainlogParser,
+    "exim_rejectlog": EximMainlogParser,
     "maillog": MaillogDovecotParser,
+    "dovecot": MaillogDovecotParser,
     "lfd": LfdLogParser,
+    "csf": LfdLogParser,
     "modsec": ModSecAuditParser,
     "system": SystemLogParser,
+    "messages": SystemLogParser,
+    "syslog": SystemLogParser,
     "secure": SecureLogParser,
+    "ssh": SecureLogParser,
+    "auth": SecureLogParser,
     "cpanel_access": CPanelAccessParser,
     "panel_logs": PanelLogParser,
     "wp_error_log": WpErrorLogParser,
+    "wp_error": WpErrorLogParser,
     "sar": SarStatsParser,
+    "sar_stats": SarStatsParser,
+    "imunify360": Imunify360Parser,
+    "auditd": AuditdParser,
+    "filemanager": FileManagerParser,
 }
 
 
@@ -398,7 +414,8 @@ def parse_log_file(file_path: str, server: str, log_type: str, upload_id: int) -
                             pe.extra = {}
 
                         if enrich_inline:
-                            pe.extra = enrich_ip_into_extra(ip=getattr(pe, "ip_client", None), extra=pe.extra)
+                            client_ip = getattr(pe, "ip_client", None) or (pe.extra.get("source_ip") if isinstance(pe.extra, dict) else None) or (pe.extra.get("ip") if isinstance(pe.extra, dict) else None)
+                            pe.extra = enrich_ip_into_extra(ip=client_ip, extra=pe.extra)
                         else:
                             pe.extra.setdefault("enrich_pending", True)
 
