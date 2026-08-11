@@ -233,7 +233,7 @@ services:
       - .env
     environment:
       NATS_URL: "nats://nats:4222"
-      DATABASE_URL: "postgresql://sentinelx:sentinelx_pass@db:5432/sentinelx_db"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-sentinelx}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-sentinelx_db}"
     volumes:
       - .:/app
       - /etc/localtime:/etc/localtime:ro
