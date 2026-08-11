@@ -39,6 +39,7 @@ class CorrelationWorker:
         self.nats_service = NatsService.get_instance()
         self.engine = CorrelationEngine.get_instance()
         self._psub: Any = None
+        self.kv_store: Any = None
 
     async def process_batch(self, messages: List[Any]) -> Tuple[int, int]:
         """
@@ -65,8 +66,8 @@ class CorrelationWorker:
                         pass
                     continue
 
-                # Procesar en el motor de correlación reactivo
-                alerts = self.engine.process_event(event)
+                # Procesar en el motor de correlación reactivo distribuido NATS KV
+                alerts = await self.engine.process_event_async(event, kv_store=self.kv_store)
                 processed_count += 1
 
                 for alert_dict in alerts:
@@ -114,6 +115,12 @@ class CorrelationWorker:
             connected = await self.nats_service.connect()
             if not connected:
                 return 0, 0
+
+        if self.kv_store is None and self.nats_service.js:
+            try:
+                self.kv_store = await self.nats_service.get_kv_store("sentinelx_correlation_kv")
+            except Exception:
+                pass
 
         try:
             if self._psub is None:

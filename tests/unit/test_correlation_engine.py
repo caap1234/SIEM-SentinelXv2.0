@@ -78,3 +78,57 @@ def test_correlation_engine_tenant_isolation():
 
     assert len(engine.process_event(ev_a)) == 0
     assert len(engine.process_event(ev_b)) == 0  # Tenant B has 1 event, not 2
+
+
+@pytest.mark.asyncio
+async def test_correlation_engine_distributed_kv_support():
+    from unittest.mock import AsyncMock
+    rule = DetectionRule(
+        id="TEST_KV_BRUTEFORCE",
+        name="Test KV Bruteforce",
+        description="KV test",
+        event_conditions={"service.name": "exim", "event.action": "auth_failed"},
+        group_by=["source.ip"],
+        threshold=50,
+        time_window_seconds=300,
+    )
+    engine = CorrelationEngine(rules=[rule])
+
+    # Simulación de tienda KV en memoria
+    kv_data = {}
+
+    class MockKV:
+        async def get(self, key):
+            if key in kv_data:
+                m = AsyncMock()
+                m.value = kv_data[key]
+                return m
+            return None
+
+        async def put(self, key, value):
+            kv_data[key] = value
+
+    mock_kv = MockKV()
+
+    # Enviar 49 eventos a través de workers simulados
+    for i in range(49):
+        ev = NormalizedEvent(
+            tenant=TenantMeta(id="default"),
+            event=EventMeta(id=f"evt-{i}", action="auth_failed"),
+            service=ServiceMeta(name="exim"),
+            source=SourceMeta(ip="198.51.100.45"),
+        )
+        alerts = await engine.process_event_async(ev, kv_store=mock_kv)
+        assert len(alerts) == 0
+
+    # Evento 50 (alcanza el umbral exacto = 50)
+    ev_50 = NormalizedEvent(
+        tenant=TenantMeta(id="default"),
+        event=EventMeta(id="evt-50", action="auth_failed"),
+        service=ServiceMeta(name="exim"),
+        source=SourceMeta(ip="198.51.100.45"),
+    )
+    alerts = await engine.process_event_async(ev_50, kv_store=mock_kv)
+    assert len(alerts) == 1
+    assert alerts[0]["trigger_count"] == 50
+    assert alerts[0]["rule_id"] == "TEST_KV_BRUTEFORCE"

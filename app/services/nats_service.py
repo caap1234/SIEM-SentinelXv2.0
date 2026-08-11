@@ -100,6 +100,21 @@ class NatsService:
             except Exception as e:
                 logger.debug("Stream %s ya existe o error menor: %s", cfg["name"], e)
 
+    async def get_kv_store(self, bucket_name: str = "sentinelx_correlation_kv"):
+        """Retorna o crea una tienda Key-Value distribuida en NATS JetStream para correlación."""
+        if not self._connected or not self.js:
+            await self.connect()
+        if not self.js:
+            return None
+        try:
+            return await self.js.key_value(bucket=bucket_name)
+        except Exception:
+            try:
+                return await self.js.create_key_value(bucket=bucket_name, ttl=3600)
+            except Exception as e:
+                logger.debug("Error creando KV bucket %s: %s", bucket_name, e)
+                return None
+
     async def publish_normalized_event(
         self,
         event: NormalizedEvent,

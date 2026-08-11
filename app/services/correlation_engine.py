@@ -64,6 +64,104 @@ class CorrelationEngine:
         self.rules = [r for r in self.rules if r.id != rule.id]
         self.rules.append(rule)
 
+    async def process_event_async(self, event: NormalizedEvent, kv_store: Any = None) -> List[Dict[str, Any]]:
+        """
+        Procesa un evento canónico normalizado utilizando NATS KV Store para mantener la ventana
+        deslizante compartida y consistente entre N instancias distribuidas de correlation_worker.
+        """
+        doc = event.to_opensearch_doc()
+        event_id = str(event.event.id)
+        tenant_id = event.tenant.id
+        ts_sec = event.timestamp_utc.timestamp()
+
+        generated_alerts: List[Dict[str, Any]] = []
+
+        for rule in self.rules:
+            if not rule.enabled:
+                continue
+
+            if not rule.matches_event(doc):
+                continue
+
+            group_key = rule.get_group_key(doc)
+            raw_key = f"{tenant_id}.{rule.id}.{group_key}".replace("/", "_").replace(" ", "_")
+
+            # Usar NATS KV si está disponible para consistencia distribuida entre N workers
+            events_list: List[Dict[str, Any]] = []
+            if kv_store:
+                try:
+                    entry = await kv_store.get(raw_key)
+                    if entry and entry.value:
+                        events_list = json.loads(entry.value.decode("utf-8"))
+                except Exception:
+                    events_list = []
+
+                # Evicción por ventana de tiempo
+                cutoff = ts_sec - rule.time_window_seconds
+                events_list = [e for e in events_list if e.get("ts", 0) >= cutoff]
+                events_list.append({"ts": ts_sec, "id": event_id})
+
+                count = len(events_list)
+                if count >= rule.threshold:
+                    alert_id = str(uuid.uuid4())
+                    related_ids = [e.get("id") for e in events_list if e.get("id")]
+                    alert = {
+                        "alert_id": alert_id,
+                        "rule_id": rule.id,
+                        "rule_name": rule.name,
+                        "description": rule.description,
+                        "category": rule.category,
+                        "tenant_id": tenant_id,
+                        "severity": rule.severity,
+                        "risk_score": rule.risk_score,
+                        "group_key": group_key,
+                        "trigger_count": count,
+                        "related_event_ids": related_ids,
+                        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                        "source_ip": doc.get("source", {}).get("ip"),
+                        "host_name": doc.get("host", {}).get("name"),
+                    }
+                    logger.warning("¡ALERTA DISTRIBUIDA SIEM GENERADA! [%s] Regla=%s GroupKey=%s Count=%d/%d", tenant_id, rule.name, group_key, count, rule.threshold)
+                    generated_alerts.append(alert)
+                    # Reiniciar ventana compartida tras disparar la alerta
+                    events_list = []
+
+                try:
+                    await kv_store.put(raw_key, json.dumps(events_list).encode("utf-8"))
+                except Exception as put_err:
+                    logger.debug("NATS KV put notice: %s", put_err)
+            else:
+                # Fallback en memoria local
+                bucket_key = (tenant_id, rule.id, group_key)
+                bucket = self.windows[bucket_key]
+                bucket.evict_expired(ts_sec, rule.time_window_seconds)
+                bucket.add_event(ts_sec, event_id)
+
+                if bucket.count() >= rule.threshold:
+                    related_ids = bucket.get_event_ids()
+                    alert_id = str(uuid.uuid4())
+                    alert = {
+                        "alert_id": alert_id,
+                        "rule_id": rule.id,
+                        "rule_name": rule.name,
+                        "description": rule.description,
+                        "category": rule.category,
+                        "tenant_id": tenant_id,
+                        "severity": rule.severity,
+                        "risk_score": rule.risk_score,
+                        "group_key": group_key,
+                        "trigger_count": bucket.count(),
+                        "related_event_ids": related_ids,
+                        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                        "source_ip": doc.get("source", {}).get("ip"),
+                        "host_name": doc.get("host", {}).get("name"),
+                    }
+                    logger.warning("¡ALERTA SIEM GENERADA! [%s] Regla=%s GroupKey=%s Count=%d/%d", tenant_id, rule.name, group_key, bucket.count(), rule.threshold)
+                    generated_alerts.append(alert)
+                    bucket.clear()
+
+        return generated_alerts
+
     def process_event(self, event: NormalizedEvent) -> List[Dict[str, Any]]:
         """
         Procesa un evento normalizado a través del motor de correlación.
