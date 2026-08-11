@@ -197,18 +197,22 @@ def dashboard_kpis(
     entities_critical = int(q_ent_critical.scalar() or 0)
 
     # Events / Sources (en rango)
-    q_ev = db.query(Event).filter(Event.timestamp_utc >= start, Event.timestamp_utc <= end)
-    if server and server != "all":
-        q_ev = q_ev.filter(Event.server == server)
+    try:
+        q_ev = db.query(Event).filter(Event.timestamp_utc >= start, Event.timestamp_utc <= end)
+        if server and server != "all":
+            q_ev = q_ev.filter(Event.server == server)
 
-    events_count = q_ev.count()
-    active_sources = (
-        db.query(func.count(distinct(Event.source)))
-        .filter(Event.timestamp_utc >= start, Event.timestamp_utc <= end)
-    )
-    if server and server != "all":
-        active_sources = active_sources.filter(Event.server == server)
-    active_sources_n = int(active_sources.scalar() or 0)
+        events_count = q_ev.count()
+        active_sources = (
+            db.query(func.count(distinct(Event.source)))
+            .filter(Event.timestamp_utc >= start, Event.timestamp_utc <= end)
+        )
+        if server and server != "all":
+            active_sources = active_sources.filter(Event.server == server)
+        active_sources_n = int(active_sources.scalar() or 0)
+    except Exception:
+        events_count = 0
+        active_sources_n = 0
 
     # Uploads
     uploads_24h_start = datetime.now(timezone.utc) - timedelta(hours=24)

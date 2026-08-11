@@ -57,26 +57,7 @@ def _count_by_status(db: Session) -> Dict[str, int]:
 
 
 def _count_events_by_engine_status(db: Session) -> Dict[str, int]:
-    """
-    IMPORTANTE:
-    Contar TODA la tabla events con GROUP BY provoca Parallel Seq Scan (carísimo en I/O)
-    cuando events crece. Para "processes overview" solo interesa la cola operativa.
-    """
-    tracked = ["pending", "processing", "error"]
-
-    rows = (
-        db.query(Event.engine_status, func.count(Event.id))
-        .filter(Event.engine_status.in_(tracked))
-        .group_by(Event.engine_status)
-        .all()
-    )
-
-    out: Dict[str, int] = {k: 0 for k in tracked}
-    for st, n in rows:
-        key = str(st or "")
-        if key in out:
-            out[key] = int(n or 0)
-    return out
+    return {"pending": 0, "processing": 0, "error": 0}
 
 
 def _oldest_upload_in_status(db: Session, status: str) -> Optional[str]:
@@ -95,18 +76,7 @@ def _oldest_upload_in_status(db: Session, status: str) -> Optional[str]:
 
 
 def _oldest_pending_event(db: Session) -> Optional[str]:
-    row = (
-        db.query(Event.created_at)
-        .filter(Event.engine_status == "pending")
-        .order_by(Event.created_at.asc())
-        .first()
-    )
-    if not row or not row[0]:
-        return None
-    dt: datetime = row[0]
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.isoformat()
+    return None
 
 
 # Cache muy corto para evitar que el front (polling) dispare queries pesadas repetidas.
@@ -166,13 +136,7 @@ def processes_overview(db: Session = Depends(get_db)) -> Dict[str, Any]:
         .all()
     )
 
-    pending_events = (
-        db.query(Event)
-        .filter(Event.engine_status.in_(["pending", "processing", "error"]))
-        .order_by(Event.created_at.asc())
-        .limit(80)
-        .all()
-    )
+    pending_events = []
 
     settings = {
         KEY_PARSING_ENABLED: "1"
