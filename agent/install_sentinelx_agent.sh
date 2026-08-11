@@ -136,6 +136,15 @@ SENTINELX_FIRST_RUN_BACKFILL_MB="50"
 SENTINELX_FIRST_RUN_SCAN_MB="64"
 SENTINELX_CHUNK_MB="50"
 
+# Bootstrap inteligente por antigüedad (logs de dominio nginx)
+# Contexto mínimo garantizado — ningún archivo es ignorado (A3)
+SENTINELX_NGINX_DOMAIN_LINES_ACTIVE="50"    # archivos modificados <24h
+SENTINELX_NGINX_DOMAIN_LINES_RECENT="20"    # archivos modificados 1-7 días
+SENTINELX_NGINX_DOMAIN_LINES_INACTIVE="10"  # archivos sin cambio >7 días (mínimo)
+
+# Caché TTL del glob de dominios nginx (segundos)
+SENTINELX_DOMAIN_CACHE_TTL="300"
+
 # Timeouts y límites
 SENTINELX_CONNECT_TIMEOUT="10"
 SENTINELX_MAX_TIME="7200"

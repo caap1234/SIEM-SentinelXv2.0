@@ -41,6 +41,15 @@ FIRST_RUN_CONTEXT_LINES="${SENTINELX_FIRST_RUN_CONTEXT_LINES:-200}"
 FIRST_RUN_BACKFILL_MB="${SENTINELX_FIRST_RUN_BACKFILL_MB:-200}"
 FIRST_RUN_SCAN_MB="${SENTINELX_FIRST_RUN_SCAN_MB:-256}"
 
+# Bootstrap inteligente para logs de dominios nginx (por antigüedad del archivo)
+# Contexto mínimo garantizado — nunca se omite un archivo aunque sea inactivo (A3)
+NGINX_DOMAIN_LINES_ACTIVE="${SENTINELX_NGINX_DOMAIN_LINES_ACTIVE:-50}"     # modificado <24h
+NGINX_DOMAIN_LINES_RECENT="${SENTINELX_NGINX_DOMAIN_LINES_RECENT:-20}"     # modificado 1-7 días
+NGINX_DOMAIN_LINES_INACTIVE="${SENTINELX_NGINX_DOMAIN_LINES_INACTIVE:-10}" # sin cambio >7 días (mínimo)
+
+# Caché del glob de dominios nginx (TTL en segundos)
+DOMAIN_CACHE_TTL="${SENTINELX_DOMAIN_CACHE_TTL:-300}" # 5 minutos
+
 # SAR (opcional)
 SAR_BACKFILL_DAYS="${SENTINELX_SAR_BACKFILL_DAYS:-3}"  # 0 = deshabilita
 
@@ -384,7 +393,34 @@ PY
 }
 
 # ------------------------------------------------------------
-# Primer run (TAIL): últimas N líneas
+# Bootstrap inteligente: número de líneas de contexto según tipo y antigüedad
+# ------------------------------------------------------------
+get_first_run_lines_for_path() {
+  local path="$1"
+
+  # Logs del sistema siempre usan el valor completo configurado
+  case "$path" in
+    /var/log/secure|/var/log/messages|/var/log/exim_mainlog|\
+    /var/log/maillog|/var/log/mail.log|/var/log/lfd.log|\
+    /usr/local/apache/logs/*|/usr/local/cpanel/logs/*|\
+    /var/log/httpd/*|/var/log/apache2/*)
+      echo "$FIRST_RUN_CONTEXT_LINES"; return ;;
+  esac
+
+  # Logs de dominio nginx: clasificar por antigüedad (mtime)
+  local mtime now age
+  mtime="$(stat -c '%Y' "$path" 2>/dev/null || echo 0)"
+  now="$(date +%s)"
+  age=$(( now - mtime ))
+
+  if   (( age < 86400   )); then echo "$NGINX_DOMAIN_LINES_ACTIVE"    # <24h
+  elif (( age < 604800  )); then echo "$NGINX_DOMAIN_LINES_RECENT"    # 1-7 días
+  else                           echo "$NGINX_DOMAIN_LINES_INACTIVE"  # >7 días: mínimo (nunca 0)
+  fi
+}
+
+# ------------------------------------------------------------
+# Primer run (TAIL): últimas N líneas (usa get_first_run_lines_for_path)
 # ------------------------------------------------------------
 initial_offset_for_first_run() {
   local path="$1"
@@ -392,10 +428,13 @@ initial_offset_for_first_run() {
   size="$(stat -c '%s' "$path" 2>/dev/null || echo 0)"
   (( size > 0 )) || { echo 0; return; }
 
+  local context_lines
+  context_lines="$(get_first_run_lines_for_path "$path")"
+
   local scan_bytes=$(( FIRST_RUN_SCAN_MB * 1024 * 1024 ))
   local fallback_bytes=$(( FIRST_RUN_BACKFILL_MB * 1024 * 1024 ))
 
-  "$PYTHON_BIN" - "$path" "$size" "$FIRST_RUN_CONTEXT_LINES" "$scan_bytes" "$fallback_bytes" <<'PY'
+  "$PYTHON_BIN" - "$path" "$size" "$context_lines" "$scan_bytes" "$fallback_bytes" <<'PY'
 import sys
 
 p = sys.argv[1]
@@ -534,19 +573,32 @@ process_file_up_to_target() {
 
   [[ -f "$path" ]] || return 0
 
-  local target_size
-  target_size="$(stat -c '%s' "$path" 2>/dev/null || echo 0)"
+  # --- DELTA CHECK (Fase 1): stat rápido sin Python ---
+  # Comparar inode+size actuales vs guardados antes de cualquier operación costosa.
+  # Si el archivo no cambió y el inode es el mismo → skip total (cero Python, cero I/O).
+  local quick_size quick_inode
+  quick_size="$(stat -c '%s' "$path" 2>/dev/null || echo 0)"
+  quick_inode="$(stat -c '%i' "$path" 2>/dev/null || echo 0)"
+
+  local qs_inode qs_off
+  read -r qs_inode qs_off < <(read_state "$path")
+
+  # Skip solo si: mismo inode, hay state previo (no primer run), y no hay datos nuevos
+  if [[ "$qs_inode" != "0" && "$quick_inode" == "$qs_inode" && "$quick_size" -le "$qs_off" ]]; then
+    return 0  # nada nuevo — sin Python, sin stat extendido, sin I/O
+  fi
+  # --- FIN DELTA CHECK ---
+
+  local target_size="$quick_size"
+  local inode="$quick_inode"
+  local st_inode="$qs_inode"
+  local st_off="$qs_off"
+
   (( target_size > 0 )) || return 0
-
-  local inode
-  inode="$(stat -c '%i' "$path" 2>/dev/null || echo 0)"
-
-  local st_inode st_off
-  read -r st_inode st_off < <(read_state "$path")
 
   local cursor_off
   if [[ "$st_inode" == "0" && "$st_off" == "0" ]]; then
-    # primer run: SOLO últimas N líneas
+    # primer run: últimas N líneas según tipo y antigüedad del archivo
     cursor_off="$(initial_offset_for_first_run "$path")"
   else
     # runs siguientes: incremental
@@ -691,14 +743,43 @@ sar_send_logic() {
   fi
 }
 
+# ------------------------------------------------------------
+# Caché TTL del glob de dominios nginx (Fase 1)
+# Evita hacer find/glob de 3,000+ archivos en cada corrida.
+# ------------------------------------------------------------
+DOMAIN_CACHE_FILE=""
+
+_init_domain_cache_path() {
+  DOMAIN_CACHE_FILE="${STATE_DIR}/nginx_domains.cache"
+}
+
+_maybe_refresh_domain_cache() {
+  _init_domain_cache_path
+  local age=999999
+  if [[ -f "$DOMAIN_CACHE_FILE" ]]; then
+    local mtime
+    mtime="$(stat -c '%Y' "$DOMAIN_CACHE_FILE" 2>/dev/null || echo 0)"
+    age=$(( $(date +%s) - mtime ))
+  fi
+  if (( age >= DOMAIN_CACHE_TTL )); then
+    # Incluye todos los dominios: autoconfig, autodiscover, ssl_log, etc. (A1)
+    find /var/log/nginx/domains/ -maxdepth 1 -type f \
+      ! -name '*.gz' \
+      ! -name '*.[0-9]' \
+      ! -name '*-bytes_log' \
+      -printf 'nginx_access:%p:nginx_domain_%f\n' \
+      > "${DOMAIN_CACHE_FILE}.tmp" 2>/dev/null \
+      && mv "${DOMAIN_CACHE_FILE}.tmp" "$DOMAIN_CACHE_FILE" \
+      || true
+  fi
+}
+
 collect_log_sources() {
   local mode_detected="$1"
 
   echo "system:/var/log/messages:system_messages"
   echo "secure:/var/log/secure:secure"
-
   echo "lfd:/var/log/lfd.log:lfd"
-
   echo "exim_mainlog:/var/log/exim_mainlog:exim_mainlog"
   echo "maillog:/var/log/maillog:maillog"
   echo "maillog:/var/log/mail.log:mail_log"
@@ -707,17 +788,10 @@ collect_log_sources() {
   [[ -f "/var/log/nginx/access.log" ]] && echo "nginx_access:/var/log/nginx/access.log:nginx_access"
   [[ -f "/var/log/nginx/error.log" ]] && echo "nginx_error:/var/log/nginx/error.log:nginx_error"
 
-  # Nginx domain logs (/var/log/nginx/domains/*)
+  # Nginx domain logs — usa caché TTL para evitar glob costoso en cada corrida
   if [[ -d "/var/log/nginx/domains" ]]; then
-    shopt -s nullglob
-    for dom_file in /var/log/nginx/domains/*; do
-      [[ -f "$dom_file" ]] || continue
-      [[ "$dom_file" =~ \.(gz|[0-9]+)$ || "$dom_file" =~ -bytes_log$ ]] && continue
-      local bname
-      bname="$(basename "$dom_file")"
-      echo "nginx_access:${dom_file}:nginx_domain_${bname}"
-    done
-    shopt -u nullglob
+    _maybe_refresh_domain_cache
+    [[ -f "$DOMAIN_CACHE_FILE" ]] && cat "$DOMAIN_CACHE_FILE"
   fi
 
   if [[ "$mode_detected" == "directadmin" || "$mode_detected" == "auto" ]]; then
