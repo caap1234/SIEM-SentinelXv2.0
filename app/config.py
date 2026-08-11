@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     INTERNAL_JOBS_TOKEN: str = "3104df6291c5a93c6e426afcce2eaa1f20de519ab0098640173da24c6a64bcef"
 
+    # --- BlacklistMaster ---
+    BLACKLISTMASTER_API_KEY: Optional[str] = None
+    BLACKLISTMASTER_BASE_URL: str = "https://www.blacklistmaster.com"
+
     # --- SMTP / Reset password (opcionales, modo debug si faltan) ---
     smtp_host: Optional[str] = None
     smtp_port: Optional[int] = None

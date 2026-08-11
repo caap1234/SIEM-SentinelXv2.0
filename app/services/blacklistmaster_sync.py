@@ -262,13 +262,17 @@ def _notify_alert_created(db: Session, alert: Alert) -> None:
 
 
 def run_blacklistmaster_sync() -> Dict[str, Any]:
-    api_key = os.getenv("BLACKLISTMASTER_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("Missing env BLACKLISTMASTER_API_KEY")
+    from fastapi import HTTPException
+    from app.config import settings
 
-    base_url = os.getenv(
-        "BLACKLISTMASTER_BASE_URL", "https://www.blacklistmaster.com"
-    ).strip()
+    api_key = (os.getenv("BLACKLISTMASTER_API_KEY") or getattr(settings, "BLACKLISTMASTER_API_KEY", "") or "").strip()
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Falta la API Key de BlacklistMaster. Por favor configura BLACKLISTMASTER_API_KEY en tu archivo .env del servidor SIEM."
+        )
+
+    base_url = (os.getenv("BLACKLISTMASTER_BASE_URL") or getattr(settings, "BLACKLISTMASTER_BASE_URL", "https://www.blacklistmaster.com")).strip()
 
     from app.services.security_list_service import SecurityListService
     svc = SecurityListService.get_instance()
