@@ -264,6 +264,7 @@ curl_upload_file() {
 
   local http_code
   http_code="$(curl "${curl_args[@]}" "$SENTINELX_INGEST_URL" || true)"
+  LAST_HTTP_CODE="$http_code"
 
   if [[ "$http_code" == "200" || "$http_code" == "201" || "$http_code" == "202" ]]; then
     return 0
@@ -554,7 +555,12 @@ flush_spool() {
       rm -rf "$job"
       [[ "$SLEEP_BETWEEN" != "0" ]] && sleep "$SLEEP_BETWEEN"
     else
-      log "STOP flush_spool due to send failure"
+      if [[ "${LAST_HTTP_CODE:-}" == "400" || "${LAST_HTTP_CODE:-}" == "422" ]]; then
+        log "WARN discarding unprocessable spool job (HTTP ${LAST_HTTP_CODE}): $(basename "$job")"
+        rm -rf "$job"
+        continue
+      fi
+      log "STOP flush_spool due to send failure (HTTP ${LAST_HTTP_CODE:-unknown})"
       if [[ "$RESET_ON_SEND_FAILURE" == "1" ]]; then
         reset_for_next_run_due_to_failure
       fi
