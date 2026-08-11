@@ -363,11 +363,7 @@ class SecurityListService:
         db: Optional[Session] = None,
     ) -> None:
         """Registra trazabilidad de un evento ignorado en la BD."""
-        close_session = False
-        if db is None:
-            db = SessionLocal()
-            close_session = True
-
+        session = SessionLocal()
         try:
             log_entry = SecurityListIgnoreLog(
                 tenant_id=tenant_id,
@@ -380,13 +376,13 @@ class SecurityListService:
                 ip_client=ip_client,
                 logged_at=_utc_now(),
             )
-            db.add(log_entry)
-            db.commit()
+            session.add(log_entry)
+            session.commit()
         except Exception as e:
+            session.rollback()
             logger.warning(f"No se pudo guardar ignore log: {e}")
         finally:
-            if close_session:
-                db.close()
+            session.close()
 
     def get_list_by_name(
         self, name: str, tenant_id: str = "global", db: Optional[Session] = None
