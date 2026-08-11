@@ -91,6 +91,10 @@ class ParsedEvent:
         if not isinstance(asn_data, dict):
             asn_data = {}
 
+        rule_data = extra.get("rule") if isinstance(extra, dict) else {}
+        if not isinstance(rule_data, dict):
+            rule_data = {}
+
         user_name = (
             self.username
             or extra.get("user")
