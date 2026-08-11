@@ -109,6 +109,9 @@ def _extract_domain_from_file_path(file_path: str) -> Optional[str]:
     if not base:
         return None
 
+    if base.startswith("nginx_domain_"):
+        base = base.replace("nginx_domain_", "")
+
     m = DOMLOG_DOMAIN_RE.match(base)
     if m:
         return _clean_host(m.group("domain"))
@@ -116,6 +119,10 @@ def _extract_domain_from_file_path(file_path: str) -> Optional[str]:
     m = DA_DOMAIN_LOG_RE.match(base)
     if m:
         return _clean_host(m.group("domain"))
+
+    clean_base = base.replace("-bytes_log", "").replace("-ssl_log", "").replace("_log", "")
+    if _looks_like_fqdn(clean_base):
+        return clean_base
 
     return None
 

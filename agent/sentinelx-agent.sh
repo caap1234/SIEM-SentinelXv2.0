@@ -706,6 +706,23 @@ collect_log_sources() {
   echo "maillog:/var/log/maillog:maillog"
   echo "maillog:/var/log/mail.log:mail_log"
 
+  # Nginx logs generales
+  [[ -f "/var/log/nginx/access.log" ]] && echo "nginx_access:/var/log/nginx/access.log:nginx_access"
+  [[ -f "/var/log/nginx/error.log" ]] && echo "nginx_error:/var/log/nginx/error.log:nginx_error"
+
+  # Nginx domain logs (/var/log/nginx/domains/*)
+  if [[ -d "/var/log/nginx/domains" ]]; then
+    shopt -s nullglob
+    for dom_file in /var/log/nginx/domains/*; do
+      [[ -f "$dom_file" ]] || continue
+      [[ "$dom_file" =~ \.(gz|[0-9]+)$ || "$dom_file" =~ -bytes_log$ ]] && continue
+      local bname
+      bname="$(basename "$dom_file")"
+      echo "nginx_access:${dom_file}:nginx_domain_${bname}"
+    done
+    shopt -u nullglob
+  fi
+
   if [[ "$mode_detected" == "directadmin" || "$mode_detected" == "auto" ]]; then
     echo "apache_access:/var/log/httpd/access_log:apache_access"
     echo "apache_error:/var/log/httpd/error_log:apache_error"

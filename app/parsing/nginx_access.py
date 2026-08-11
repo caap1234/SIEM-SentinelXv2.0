@@ -45,6 +45,11 @@ class NginxAccessParser(LogParser):
 
         ua = (gd.get("ua") or "").strip() or None
         ref = (gd.get("ref") or "").strip() or None
+        domain = None
+        if ref and ref != "-":
+            ref_match = re.search(r'https?://([^/:]+)', ref)
+            if ref_match:
+                domain = ref_match.group(1).strip().lower()
 
         extra = {
             "event_type": "http_access",
@@ -55,6 +60,7 @@ class NginxAccessParser(LogParser):
                 "bytes": size,
                 "user_agent": ua,
                 "referer": ref,
+                "host": domain,
             },
         }
 
@@ -64,6 +70,7 @@ class NginxAccessParser(LogParser):
             source=self.source,
             service="HTTP",
             ip_client=ip,
+            domain=domain,
             message=f"{method} {path} {status}",
             extra=extra,
             log_upload_id=log_upload_id,
