@@ -72,10 +72,15 @@ class CorrelationWorker:
                     generated_alerts_count += 1
                     # Guardar alerta en PostgreSQL
                     alert_entry = Alert(
-                        title=alert_dict["rule_name"],
-                        description=alert_dict["description"],
-                        severity=str(alert_dict["severity"]),
-                        status="new",
+                        rule_name=str(alert_dict.get("rule_name", "Security Detection Rule")),
+                        severity=int(alert_dict.get("severity", 50)),
+                        server=event.host.hostname or event.host.name or "unknown",
+                        source=event.event.dataset or "generic",
+                        group_key=str(alert_dict.get("group_key", "default")),
+                        opensearch_event_id=str(event.event.id),
+                        triggered_at=event.timestamp_utc,
+                        status="open",
+                        evidence=alert_dict.get("evidence", {}),
                     )
                     db.add(alert_entry)
 
