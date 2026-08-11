@@ -3,18 +3,13 @@
 set -euo pipefail
 
 # ------------------------------------------------------------
-# SentinelX Agent - incremental uploader (inode+offset) + spool
+# SentinelX Agent v2.1 Enterprise - incremental uploader (inode+offset) + spool
 # Objetivo: enviar logs por partes, sin perder bytes, sin cortar líneas.
 # - NO modifica contenido del log (incluye NUL bytes si existen)
 # - Chunks SIEMPRE terminan en '\n' (si existe), evitando líneas partidas
-# - Si una línea es muy larga, busca el próximo '\n' hacia adelante (forward scan)
-# - Si no hay '\n' aún (línea incompleta al final), NO envía esa parte
-#
-# Comportamiento requerido:
-# - Primera vez (sin state): manda SOLO últimas N líneas (default 200).
-# - Siguientes corridas: incremental desde el offset guardado.
-# - Si cualquier envío falla (ej. 502): RESETEA cola (purga spool + borra states)
-#   para que la siguiente corrida vuelva a comportarse como "primer run" (solo 200 líneas).
+# - Throttling Híbrido: Carga Local (/proc/loadavg) + Backpressure de Backend (Latencia HTTP / 429 / 5xx)
+# - Atomicidad Estricta: Persistencia en spool antes de avanzar el offset (.state)
+# - Política de Baseline Deliberada para Nginx Domains (15/5/2 líneas)
 # ------------------------------------------------------------
 
 ENV_FILE="${ENV_FILE:-/etc/sentinelx-agent.env}"
@@ -36,16 +31,22 @@ SLEEP_BETWEEN="${SENTINELX_SLEEP_BETWEEN_SENDS:-0}"
 # Corte por tiempo de corrida
 MAX_SECONDS_PER_RUN="${SENTINELX_MAX_SECONDS_PER_RUN:-3300}" # 55 min
 
-# Primer run (TAIL MODE)
+# Primer run (TAIL MODE) & Throttling Parametrizado
 FIRST_RUN_CONTEXT_LINES="${SENTINELX_FIRST_RUN_CONTEXT_LINES:-200}"
 FIRST_RUN_BACKFILL_MB="${SENTINELX_FIRST_RUN_BACKFILL_MB:-200}"
 FIRST_RUN_SCAN_MB="${SENTINELX_FIRST_RUN_SCAN_MB:-256}"
+FIRST_RUN_MAX_TOTAL_MB="${SENTINELX_FIRST_RUN_MAX_TOTAL_MB:-15}"
+
+# Throttling local y backpressure backend
+THROTTLE_MODERATE_SLEEP="${SENTINELX_THROTTLE_MODERATE_SLEEP:-0.2}"
+THROTTLE_HIGH_SLEEP="${SENTINELX_THROTTLE_HIGH_SLEEP:-1.0}"
+BACKEND_LATENCY_THRESHOLD_MS="${SENTINELX_BACKEND_LATENCY_THRESHOLD_MS:-1500}"
 
 # Bootstrap inteligente para logs de dominios nginx (por antigüedad del archivo)
-# Contexto mínimo garantizado — nunca se omite un archivo aunque sea inactivo (A3)
-NGINX_DOMAIN_LINES_ACTIVE="${SENTINELX_NGINX_DOMAIN_LINES_ACTIVE:-50}"     # modificado <24h
-NGINX_DOMAIN_LINES_RECENT="${SENTINELX_NGINX_DOMAIN_LINES_RECENT:-20}"     # modificado 1-7 días
-NGINX_DOMAIN_LINES_INACTIVE="${SENTINELX_NGINX_DOMAIN_LINES_INACTIVE:-10}" # sin cambio >7 días (mínimo)
+# Contexto mínimo garantizado — política deliberada de baseline inicial
+NGINX_DOMAIN_LINES_ACTIVE="${SENTINELX_NGINX_DOMAIN_LINES_ACTIVE:-15}"     # modificado <24h
+NGINX_DOMAIN_LINES_RECENT="${SENTINELX_NGINX_DOMAIN_LINES_RECENT:-5}"       # modificado 1-7 días
+NGINX_DOMAIN_LINES_INACTIVE="${SENTINELX_NGINX_DOMAIN_LINES_INACTIVE:-2}"   # sin cambio >7 días
 
 # Caché del glob de dominios nginx (TTL en segundos)
 DOMAIN_CACHE_TTL="${SENTINELX_DOMAIN_CACHE_TTL:-300}" # 5 minutos
@@ -66,22 +67,32 @@ MAX_FORWARD_SCAN_BYTES="${SENTINELX_MAX_FORWARD_SCAN_BYTES:-8388608}"     # busc
 # Python (recomendado)
 PYTHON_BIN="${SENTINELX_PYTHON_BIN:-python3}"
 
-# SECURITY FIX (Fase 0.5): Si el backend está caído (sin HTTP) o devuelve 5xx/429:
-# 0 = preservar spool y states (SEGURO - default)
-# 1 = reset (purga spool + borra states) y sale sin encolar [PELIGROSO: PÉRDIDA DE EVENTOS]
-# IMPORTANTE: Nunca uses RESET_ON_BACKEND_DOWN=1 en producción.
-# El agente preservará el spool hasta que el backend recupere conectividad.
 RESET_ON_BACKEND_DOWN="${SENTINELX_RESET_ON_BACKEND_DOWN:-0}"
-
-# SECURITY FIX (Fase 0.5): Si cualquier envío falla (por ejemplo 502):
-# 0 = preservar spool y reintentarlo en la próxima ejecución (SEGURO - default)
-# 1 = reset (purga spool + borra states) y termina corrida [PELIGROSO: PÉRDIDA DE EVENTOS]
 RESET_ON_SEND_FAILURE="${SENTINELX_RESET_ON_SEND_FAILURE:-0}"
 
 mkdir -p "$STATE_DIR" "$SPOOL_DIR" "$TMP_DIR" "$(dirname "$LOCK_FILE")"
 umask 027
 
 RUN_START_EPOCH="$(date -u +%s)"
+
+# Telemetría Global por Corrida
+TELEMETRY_START_SEC="$(date +%s)"
+TELEMETRY_FILES_SCANNED=0
+TELEMETRY_FILES_CHANGED=0
+TELEMETRY_FILES_PROCESSED=0
+TELEMETRY_JOBS_ENQUEUED=0
+TELEMETRY_JOBS_SENT=0
+TELEMETRY_JOBS_PENDING=0
+TELEMETRY_RAW_BYTES=0
+TELEMETRY_COMPRESSED_BYTES=0
+TELEMETRY_HTTP_REQUESTS=0
+TELEMETRY_HTTP_FAILURES=0
+TELEMETRY_LATENCY_SUM_MS=0
+TELEMETRY_THROTTLE_MODE="normal"
+TELEMETRY_THROTTLE_SLEEPS="0.0"
+TELEMETRY_STOP_REASON="completed"
+TELEMETRY_LOAD_PEAK="0.00"
+TOTAL_FIRST_RUN_ENQUEUED_BYTES=0
 
 log() { echo "[$(date -u +"%Y-%m-%d %H:%M:%S") UTC] $*"; }
 
@@ -98,9 +109,64 @@ need_python() {
   fi
 }
 
-# ------------------------------------------------------------
-# Lock
-# ------------------------------------------------------------
+get_cpu_cores() {
+  if command -v nproc >/dev/null 2>&1; then
+    nproc
+  elif [[ -f /proc/cpuinfo ]]; then
+    grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 1
+  else
+    echo 1
+  fi
+}
+
+get_load_1min() {
+  if [[ -f /proc/loadavg ]]; then
+    awk '{print $1}' /proc/loadavg 2>/dev/null || echo "0.00"
+  else
+    echo "0.00"
+  fi
+}
+
+get_time_ms() {
+  date +%s%3N 2>/dev/null || "$PYTHON_BIN" -c "import time; print(int(time.time()*1000))"
+}
+
+check_throttling_and_load() {
+  local cores load1
+  cores="$(get_cpu_cores)"
+  load1="$(get_load_1min)"
+
+  local is_peak
+  is_peak="$("$PYTHON_BIN" -c "import sys; print(1 if float('$load1') > float('${TELEMETRY_LOAD_PEAK}') else 0)" 2>/dev/null || echo 0)"
+  if [[ "$is_peak" == "1" ]]; then
+    TELEMETRY_LOAD_PEAK="$load1"
+  fi
+
+  local mod_limit high_limit
+  mod_limit="$("$PYTHON_BIN" -c "print($cores * 0.7)" 2>/dev/null || echo "1.0")"
+  high_limit="$("$PYTHON_BIN" -c "print($cores * 1.1)" 2>/dev/null || echo "2.0")"
+
+  local is_high is_mod
+  is_high="$("$PYTHON_BIN" -c "import sys; print(1 if float('$load1') >= float('$high_limit') else 0)" 2>/dev/null || echo 0)"
+  is_mod="$("$PYTHON_BIN" -c "import sys; print(1 if float('$load1') >= float('$mod_limit') else 0)" 2>/dev/null || echo 0)"
+
+  if [[ "$is_high" == "1" ]]; then
+    TELEMETRY_THROTTLE_MODE="high_load_local"
+    log "WARN high_load_local: load1=${load1} >= limit=${high_limit} (${cores} cores). Sleeping ${THROTTLE_HIGH_SLEEP}s..."
+    sleep "$THROTTLE_HIGH_SLEEP"
+    TELEMETRY_THROTTLE_SLEEPS="$("$PYTHON_BIN" -c "print(round(float('${TELEMETRY_THROTTLE_SLEEPS}') + float('${THROTTLE_HIGH_SLEEP}'), 2))" 2>/dev/null || echo "${TELEMETRY_THROTTLE_SLEEPS}")"
+    return 2
+  elif [[ "$is_mod" == "1" ]]; then
+    if [[ "$TELEMETRY_THROTTLE_MODE" != "high_load_local" ]]; then
+      TELEMETRY_THROTTLE_MODE="throttled_local"
+    fi
+    sleep "$THROTTLE_MODERATE_SLEEP"
+    TELEMETRY_THROTTLE_SLEEPS="$("$PYTHON_BIN" -c "print(round(float('${TELEMETRY_THROTTLE_SLEEPS}') + float('${THROTTLE_MODERATE_SLEEP}'), 2))" 2>/dev/null || echo "${TELEMETRY_THROTTLE_SLEEPS}")"
+    return 1
+  fi
+  return 0
+}
+
 acquire_lock() {
   if command -v flock >/dev/null 2>&1; then
     exec 9>"$LOCK_FILE"
@@ -141,20 +207,10 @@ reset_states() {
 }
 
 reset_for_next_run_due_to_failure() {
-  # SECURITY FIX: Esta función YA NO purga spool por defecto.
-  # Solo purga si el usuario configuró explícitamente RESET_ON_BACKEND_DOWN=1
-  # o RESET_ON_SEND_FAILURE=1, lo cual se considera PELIGROSO.
-  #
-  # Comportamiento seguro (default): preservar spool y states.
-  # El siguiente run retomará desde donde se detuvo.
   log "WARN backend_failure: spool PRESERVADO. El offset será retomado en la próxima ejecución."
   set_agent_state "delayed"
 }
 
-# ------------------------------------------------------------
-# Estado del agente (máquina de estados persistente)
-# Estados: healthy | delayed | offline | spool_warning | spool_critical | authentication_failed | configuration_error
-# ------------------------------------------------------------
 AGENT_STATE_FILE="${STATE_DIR}/agent_state.json"
 AGENT_STATE="healthy"
 
@@ -170,7 +226,7 @@ set_agent_state() {
   "reason": "${reason}",
   "timestamp_utc": "${ts}",
   "pid": $$,
-  "version": "1.0.0-enterprise",
+  "version": "2.1.0-enterprise",
   "spool_dir": "${SPOOL_DIR}",
   "state_dir": "${STATE_DIR}"
 }
@@ -203,11 +259,6 @@ check_spool_size() {
   return 0
 }
 
-# ------------------------------------------------------------
-# Preflight: detectar si el backend realmente está OK para aceptar tráfico
-# Regla: si curl devuelve http_code "000" => no hay respuesta HTTP => down
-#        si devuelve 5xx o 429 => considerarlo "down" para evitar tormentas
-# ------------------------------------------------------------
 backend_reachable() {
   local http_code
   http_code="$(curl -sS --connect-timeout "$CONNECT_TIMEOUT" --max-time "$CONNECT_TIMEOUT" -H "X-API-Key: ${SENTINELX_API_KEY}" -o /dev/null -w "%{http_code}" -I "$SENTINELX_INGEST_URL" || true)"
@@ -217,19 +268,16 @@ backend_reachable() {
     return 1
   fi
 
-  # 401/403 => authentication_failed
   if [[ "$http_code" == "401" || "$http_code" == "403" ]]; then
     set_agent_state "authentication_failed" "http_code=${http_code}"
     return 1
   fi
 
-  # 405 Method Not Allowed / 422 / 2xx / 3xx => el servidor HTTP del SIEM está vivo y respondiendo!
   if [[ "$http_code" == "405" || "$http_code" == "422" || "$http_code" =~ ^2 || "$http_code" =~ ^3 || "$http_code" == "404" ]]; then
     set_agent_state "healthy"
     return 0
   fi
 
-  # 5xx y 429 => backend degradado
   if [[ "$http_code" == "429" || "$http_code" =~ ^5 ]]; then
     set_agent_state "delayed" "backend_degraded http_code=${http_code}"
     return 1
@@ -239,16 +287,18 @@ backend_reachable() {
   return 0
 }
 
-# ------------------------------------------------------------
-# curl uploader (multipart)
-# ------------------------------------------------------------
 curl_upload_file() {
   local tag="$1"
   local filepath="$2"
   local filename="$3"
 
+  check_throttling_and_load || true
+
   local resp_body_file
   resp_body_file="$(mktemp "${TMP_DIR}/curl_resp.XXXXXX" 2>/dev/null || echo "${TMP_DIR}/curl_resp.tmp")"
+
+  local t_start t_end lat_ms
+  t_start="$(get_time_ms)"
 
   local curl_args=(
     -sS
@@ -258,7 +308,8 @@ curl_upload_file() {
     -F "tag=${tag}"
     -F "file=@${filepath};filename=${filename}"
     -o "$resp_body_file"
-    -w "\n%{http_code}"
+    -w "
+%{http_code}"
   )
 
   if [[ -n "$LIMIT_RATE" ]]; then
@@ -269,6 +320,17 @@ curl_upload_file() {
   local curl_out
   curl_out="$(curl "${curl_args[@]}" "$SENTINELX_INGEST_URL" 2>&1)" || curl_exit=$?
 
+  t_end="$(get_time_ms)"
+
+  if (( t_start > 0 && t_end >= t_start )); then
+    lat_ms=$(( t_end - t_start ))
+  else
+    lat_ms=0
+  fi
+
+  TELEMETRY_HTTP_REQUESTS=$(( TELEMETRY_HTTP_REQUESTS + 1 ))
+  TELEMETRY_LATENCY_SUM_MS=$(( TELEMETRY_LATENCY_SUM_MS + lat_ms ))
+
   local http_code
   http_code="$(echo "$curl_out" | tail -n1 | grep -E '^[0-9]{3}$' || echo "000")"
   LAST_HTTP_CODE="$http_code"
@@ -276,12 +338,30 @@ curl_upload_file() {
 
   if [[ "$http_code" == "200" || "$http_code" == "201" || "$http_code" == "202" ]]; then
     rm -f "$resp_body_file" 2>/dev/null || true
+    TELEMETRY_JOBS_SENT=$(( TELEMETRY_JOBS_SENT + 1 ))
+
+    if (( lat_ms >= BACKEND_LATENCY_THRESHOLD_MS )); then
+      TELEMETRY_THROTTLE_MODE="backpressure_backend"
+      log "WARN backpressure_backend: HTTP latencia alta (${lat_ms}ms >= ${BACKEND_LATENCY_THRESHOLD_MS}ms). Sleeping ${THROTTLE_MODERATE_SLEEP}s..."
+      sleep "$THROTTLE_MODERATE_SLEEP"
+      TELEMETRY_THROTTLE_SLEEPS="$("$PYTHON_BIN" -c "print(round(float('${TELEMETRY_THROTTLE_SLEEPS}') + float('${THROTTLE_MODERATE_SLEEP}'), 2))" 2>/dev/null || echo "${TELEMETRY_THROTTLE_SLEEPS}")"
+    fi
     return 0
+  fi
+
+  TELEMETRY_HTTP_FAILURES=$(( TELEMETRY_HTTP_FAILURES + 1 ))
+
+  if [[ "$http_code" == "429" || "$http_code" == "502" || "$http_code" == "503" || "$http_code" == "504" ]]; then
+    TELEMETRY_THROTTLE_MODE="backpressure_backend"
+    log "WARN backend_rate_limit_or_error: HTTP ${http_code} recibido. Aplicando Backoff Exponencial (2.0s)..."
+    sleep 2.0
+    TELEMETRY_THROTTLE_SLEEPS="$("$PYTHON_BIN" -c "print(round(float('${TELEMETRY_THROTTLE_SLEEPS}') + 2.0, 2))" 2>/dev/null || echo "${TELEMETRY_THROTTLE_SLEEPS}")"
   fi
 
   local body_snippet=""
   if [[ -f "$resp_body_file" ]]; then
-    body_snippet="$(head -c 150 "$resp_body_file" | tr '\n' ' ' | tr -d '\r')"
+    body_snippet="$(head -c 150 "$resp_body_file" | tr '
+' ' ' | tr -d '')"
     rm -f "$resp_body_file" 2>/dev/null || true
   fi
 
@@ -301,9 +381,6 @@ curl_upload_file() {
   return 1
 }
 
-# ------------------------------------------------------------
-# state: inode + offset
-# ------------------------------------------------------------
 state_key_from_path() {
   local path="$1"
   echo "$(echo "$path" | sed 's#[^a-zA-Z0-9._-]#_#g')"
@@ -328,12 +405,10 @@ write_state() {
   local offset="$3"
   local sf
   sf="$(state_file_for_path "$path")"
-  printf "%s %s\n" "$inode" "$offset" > "$sf"
+  printf "%s %s
+" "$inode" "$offset" > "$sf"
 }
 
-# ------------------------------------------------------------
-# Python helpers: alineación a newline sin modificar bytes
-# ------------------------------------------------------------
 py_align_cursor() {
   local path="$1"
   local off="$2"
@@ -343,28 +418,22 @@ py_align_cursor() {
 import sys
 p = sys.argv[1]
 off = int(sys.argv[2])
-scan = int(sys.argv[3])
+scan_back = int(sys.argv[3])
 
 if off <= 0:
-    print(0); raise SystemExit
+    print(0); sys.exit()
 
-with open(p, "rb") as f:
-    f.seek(off-1)
-    prev = f.read(1)
-
-if prev == b"\n":
-    print(off); raise SystemExit
-
-start = max(0, off - scan)
+start = max(0, off - scan_back)
 with open(p, "rb") as f:
     f.seek(start)
-    data = f.read(off - start)
+    buf = f.read(off - start)
 
-idx = data.rfind(b"\n")
-if idx == -1:
-    print(0)
-else:
+idx = buf.rfind(b"
+")
+if idx != -1:
     print(start + idx + 1)
+else:
+    print(off)
 PY
 }
 
@@ -391,51 +460,40 @@ if proposed_end > target_size:
 if proposed_end <= cursor:
     print(cursor); raise SystemExit
 
-# 1) buscar '\n' hacia atrás dentro de [max(cursor, proposed_end-scan_back), proposed_end)
 win_start = max(cursor, proposed_end - scan_back)
 with open(p, "rb") as f:
     f.seek(win_start)
     data = f.read(proposed_end - win_start)
 
-idx = data.rfind(b"\n")
+idx = data.rfind(b"
+")
 if idx != -1:
     end = win_start + idx + 1
     if end > cursor:
         print(end); raise SystemExit
 
-# 2) no se encontró hacia atrás -> probablemente línea demasiado larga
-#    buscar '\n' hacia adelante desde proposed_end hasta proposed_end+scan_fwd (sin pasar target_size)
 fwd_end = min(target_size, proposed_end + scan_fwd)
 if fwd_end > proposed_end:
     with open(p, "rb") as f:
         f.seek(proposed_end)
         data2 = f.read(fwd_end - proposed_end)
-    j = data2.find(b"\n")
+    j = data2.find(b"
+")
     if j != -1:
         print(proposed_end + j + 1); raise SystemExit
 
-# 3) no hay '\n' disponible (línea incompleta al final o demasiado larga sin newline aún)
-#    -> NO enviar nada (mantener cursor)
 print(cursor)
 PY
 }
 
-# ------------------------------------------------------------
-# Bootstrap inteligente: número de líneas de contexto según tipo y antigüedad
-# ------------------------------------------------------------
 get_first_run_lines_for_path() {
   local path="$1"
 
-  # Logs del sistema siempre usan el valor completo configurado
   case "$path" in
-    /var/log/secure|/var/log/messages|/var/log/exim_mainlog|\
-    /var/log/maillog|/var/log/mail.log|/var/log/lfd.log|\
-    /usr/local/apache/logs/*|/usr/local/cpanel/logs/*|\
-    /var/log/httpd/*|/var/log/apache2/*)
+    /var/log/secure|/var/log/messages|/var/log/exim_mainlog|    /var/log/maillog|/var/log/mail.log|/var/log/lfd.log|    /usr/local/apache/logs/*|/usr/local/cpanel/logs/*|    /var/log/httpd/*|/var/log/apache2/*)
       echo "$FIRST_RUN_CONTEXT_LINES"; return ;;
   esac
 
-  # Logs de dominio nginx: clasificar por antigüedad (mtime)
   local mtime now age
   mtime="$(stat -c '%Y' "$path" 2>/dev/null || echo 0)"
   now="$(date +%s)"
@@ -443,13 +501,10 @@ get_first_run_lines_for_path() {
 
   if   (( age < 86400   )); then echo "$NGINX_DOMAIN_LINES_ACTIVE"    # <24h
   elif (( age < 604800  )); then echo "$NGINX_DOMAIN_LINES_RECENT"    # 1-7 días
-  else                           echo "$NGINX_DOMAIN_LINES_INACTIVE"  # >7 días: mínimo (nunca 0)
+  else                           echo "$NGINX_DOMAIN_LINES_INACTIVE"  # >7 días
   fi
 }
 
-# ------------------------------------------------------------
-# Primer run (TAIL): últimas N líneas (usa get_first_run_lines_for_path)
-# ------------------------------------------------------------
 initial_offset_for_first_run() {
   local path="$1"
   local size
@@ -476,7 +531,8 @@ with open(p, "rb") as f:
     f.seek(start)
     buf = f.read(size - start)
 
-if b"\n" not in buf:
+if b"
+" not in buf:
     print(max(0, size - fallback_bytes))
     raise SystemExit
 
@@ -492,9 +548,6 @@ print(out)
 PY
 }
 
-# ------------------------------------------------------------
-# spool jobs
-# ------------------------------------------------------------
 spool_job_dir() {
   local tag="$1"
   local name="$2"
@@ -534,6 +587,18 @@ BYTES=$(printf '%q' "$payload_size")
 EOF
 
   mv "$payload_path" "${job}/payload.gz"
+
+  # ATOMICIDAD ESTRICTA: Confirmar persistencia duradera en spool ANTES de actualizar offset state
+  if [[ -f "${job}/payload.gz" && -f "${job}/meta.env" ]]; then
+    if [[ -n "${src_path:-}" && "$src_path" != "/dev/null" ]]; then
+      write_state "$src_path" "$inode" "$end_off"
+    fi
+    TELEMETRY_JOBS_ENQUEUED=$(( TELEMETRY_JOBS_ENQUEUED + 1 ))
+    TELEMETRY_RAW_BYTES=$(( TELEMETRY_RAW_BYTES + raw_bytes ))
+    TELEMETRY_COMPRESSED_BYTES=$(( TELEMETRY_COMPRESSED_BYTES + payload_size ))
+    TOTAL_FIRST_RUN_ENQUEUED_BYTES=$(( TOTAL_FIRST_RUN_ENQUEUED_BYTES + payload_size ))
+  fi
+
   log "ENQUEUE tag=${tag} name=${orig_name} payload_bytes=${payload_size} raw_bytes=${raw_bytes} off=${start_off}-${end_off} job=$(basename "$job")"
 }
 
@@ -543,7 +608,9 @@ flush_spool() {
   shopt -u nullglob
 
   [[ ${#jobs[@]} -eq 0 ]] && return 0
-  IFS=$'\n' jobs=( $(printf "%s\n" "${jobs[@]}" | sort) ); unset IFS
+  IFS=$'
+' jobs=( $(printf "%s
+" "${jobs[@]}" | sort) ); unset IFS
 
   for job in "${jobs[@]}"; do
     [[ -d "$job" ]] || continue
@@ -558,6 +625,7 @@ flush_spool() {
     fi
 
     if time_exceeded; then
+      TELEMETRY_STOP_REASON="max_seconds_reached"
       log "STOP flush_spool time_exceeded"
       return 0
     fi
@@ -565,7 +633,6 @@ flush_spool() {
     local fname="${ORIG_NAME}.part_${START_OFF}_${END_OFF}.gz"
 
     if curl_upload_file "$TAG" "$payload" "$fname"; then
-      # solo avanzamos state si el upload fue OK
       if [[ -n "${SRC_PATH:-}" && "$SRC_PATH" != "/dev/null" ]]; then
         local cur_inode cur_off
         read -r cur_inode cur_off < <(read_state "$SRC_PATH")
@@ -600,9 +667,6 @@ flush_spool() {
   return 0
 }
 
-# ------------------------------------------------------------
-# Encola chunks alineados a newline, hasta target_size (snapshot)
-# ------------------------------------------------------------
 process_file_up_to_target() {
   local path="$1"
   local tag="$2"
@@ -610,9 +674,8 @@ process_file_up_to_target() {
 
   [[ -f "$path" ]] || return 0
 
-  # --- DELTA CHECK (Fase 1): stat rápido sin Python ---
-  # Comparar inode+size actuales vs guardados antes de cualquier operación costosa.
-  # Si el archivo no cambió y el inode es el mismo → skip total (cero Python, cero I/O).
+  TELEMETRY_FILES_SCANNED=$(( TELEMETRY_FILES_SCANNED + 1 ))
+
   local quick_size quick_inode
   quick_size="$(stat -c '%s' "$path" 2>/dev/null || echo 0)"
   quick_inode="$(stat -c '%i' "$path" 2>/dev/null || echo 0)"
@@ -620,11 +683,30 @@ process_file_up_to_target() {
   local qs_inode qs_off
   read -r qs_inode qs_off < <(read_state "$path")
 
-  # Skip solo si: mismo inode, hay state previo (no primer run), y no hay datos nuevos
   if [[ "$qs_inode" != "0" && "$quick_inode" == "$qs_inode" && "$quick_size" -le "$qs_off" ]]; then
-    return 0  # nada nuevo — sin Python, sin stat extendido, sin I/O
+    return 0
   fi
-  # --- FIN DELTA CHECK ---
+
+  TELEMETRY_FILES_CHANGED=$(( TELEMETRY_FILES_CHANGED + 1 ))
+
+  # Límite Global FIRST_RUN_MAX_TOTAL_MB en primer arranque
+  local max_first_run_bytes=$(( FIRST_RUN_MAX_TOTAL_MB * 1024 * 1024 ))
+  if [[ "$qs_inode" == "0" && "$qs_off" == "0" ]]; then
+    if (( TOTAL_FIRST_RUN_ENQUEUED_BYTES >= max_first_run_bytes )); then
+      TELEMETRY_STOP_REASON="max_payload_reached"
+      log "INFO max_payload_reached: FIRST_RUN_MAX_TOTAL_MB (${FIRST_RUN_MAX_TOTAL_MB}MB) alcanzado en esta corrida. Retomando restantes en próxima ejecución."
+      return 0
+    fi
+  fi
+
+  # Verificación de High Load Local
+  local current_load_st=0
+  check_throttling_and_load || current_load_st=$?
+  if [[ "$current_load_st" == "2" ]]; then
+    TELEMETRY_STOP_REASON="high_load_triggered"
+    log "WARN high_load_triggered: deteniendo encolado adicional de bootstrap en esta corrida."
+    return 0
+  fi
 
   local target_size="$quick_size"
   local inode="$quick_inode"
@@ -635,10 +717,8 @@ process_file_up_to_target() {
 
   local cursor_off
   if [[ "$st_inode" == "0" && "$st_off" == "0" ]]; then
-    # primer run: últimas N líneas según tipo y antigüedad del archivo
     cursor_off="$(initial_offset_for_first_run "$path")"
   else
-    # runs siguientes: incremental
     if [[ "$inode" != "$st_inode" || "$target_size" -lt "$st_off" ]]; then
       cursor_off=0
     else
@@ -655,7 +735,11 @@ process_file_up_to_target() {
   local chunk_bytes=$((CHUNK_MB * 1024 * 1024))
 
   while (( cursor_off < target_size )); do
-    time_exceeded && { log "STOP time_exceeded while enqueuing $path"; return 0; }
+    if time_exceeded; then
+      TELEMETRY_STOP_REASON="max_seconds_reached"
+      log "STOP time_exceeded while enqueuing $path"
+      return 0
+    fi
 
     local proposed_end=$((cursor_off + chunk_bytes))
     (( proposed_end > target_size )) && proposed_end="$target_size"
@@ -673,8 +757,7 @@ process_file_up_to_target() {
 
     local tmp_gz="${TMP_DIR}/$(basename "$path").${cursor_off}-${end_off}.gz"
 
-    if ! dd if="$path" iflag=skip_bytes,count_bytes skip="$cursor_off" count="$bytes" status=none \
-        | gzip -c > "$tmp_gz"; then
+    if ! dd if="$path" iflag=skip_bytes,count_bytes skip="$cursor_off" count="$bytes" status=none         | gzip -c > "$tmp_gz"; then
       rm -f "$tmp_gz"
       log "WARN enqueue failed path=$path"
       return 0
@@ -682,10 +765,10 @@ process_file_up_to_target() {
 
     enqueue_payload_file "$tag" "$path" "$name" "$inode" "$cursor_off" "$end_off" "$bytes" "$tmp_gz"
     cursor_off="$end_off"
+    TELEMETRY_FILES_PROCESSED=$(( TELEMETRY_FILES_PROCESSED + 1 ))
   done
 }
 
-# ---- SAR helpers ----
 sar_header() {
   local sar_date="$1"
   local sar_file="$2"
@@ -780,10 +863,6 @@ sar_send_logic() {
   fi
 }
 
-# ------------------------------------------------------------
-# Caché TTL del glob de dominios nginx (Fase 1)
-# Evita hacer find/glob de 3,000+ archivos en cada corrida.
-# ------------------------------------------------------------
 DOMAIN_CACHE_FILE=""
 
 _init_domain_cache_path() {
@@ -799,15 +878,8 @@ _maybe_refresh_domain_cache() {
     age=$(( $(date +%s) - mtime ))
   fi
   if (( age >= DOMAIN_CACHE_TTL )); then
-    # Incluye todos los dominios: autoconfig, autodiscover, ssl_log, etc. (A1)
-    find /var/log/nginx/domains/ -maxdepth 1 -type f \
-      ! -name '*.gz' \
-      ! -name '*.[0-9]' \
-      ! -name '*-bytes_log' \
-      -printf 'nginx_access:%p:nginx_domain_%f\n' \
-      > "${DOMAIN_CACHE_FILE}.tmp" 2>/dev/null \
-      && mv "${DOMAIN_CACHE_FILE}.tmp" "$DOMAIN_CACHE_FILE" \
-      || true
+    find /var/log/nginx/domains/ -maxdepth 1 -type f       ! -name '*.gz'       ! -name '*.[0-9]'       ! -name '*-bytes_log'       -printf 'nginx_access:%p:nginx_domain_%f
+'       > "${DOMAIN_CACHE_FILE}.tmp" 2>/dev/null       && mv "${DOMAIN_CACHE_FILE}.tmp" "$DOMAIN_CACHE_FILE"       || true
   fi
 }
 
@@ -821,11 +893,9 @@ collect_log_sources() {
   echo "maillog:/var/log/maillog:maillog"
   echo "maillog:/var/log/mail.log:mail_log"
 
-  # Nginx logs generales
   [[ -f "/var/log/nginx/access.log" ]] && echo "nginx_access:/var/log/nginx/access.log:nginx_access"
   [[ -f "/var/log/nginx/error.log" ]] && echo "nginx_error:/var/log/nginx/error.log:nginx_error"
 
-  # Nginx domain logs — usa caché TTL para evitar glob costoso en cada corrida
   if [[ -d "/var/log/nginx/domains" ]]; then
     _maybe_refresh_domain_cache
     [[ -f "$DOMAIN_CACHE_FILE" ]] && cat "$DOMAIN_CACHE_FILE"
@@ -856,36 +926,38 @@ main() {
   local mode_detected
   mode_detected="$(detect_mode)"
 
-  log "START mode=${mode_detected} first_run=tail_lines context_lines=${FIRST_RUN_CONTEXT_LINES} scan_mb=${FIRST_RUN_SCAN_MB} fallback_mb=${FIRST_RUN_BACKFILL_MB} chunk_mb=${CHUNK_MB} max_seconds=${MAX_SECONDS_PER_RUN} scan_back=${MAX_NEWLINE_SCAN_BYTES} scan_fwd=${MAX_FORWARD_SCAN_BYTES} reset_on_backend_down=${RESET_ON_BACKEND_DOWN} reset_on_send_failure=${RESET_ON_SEND_FAILURE} python=$("$PYTHON_BIN" -V 2>&1 | tr -d '\r')"
+  local load_start
+  load_start="$(get_load_1min)"
+  TELEMETRY_LOAD_PEAK="$load_start"
 
-  # -- Monitor spool size before proceeding --
-  check_spool_size || true  # warning/critical states set inside, but we continue
+  log "START mode=${mode_detected} first_run=tail_lines context_lines=${FIRST_RUN_CONTEXT_LINES} scan_mb=${FIRST_RUN_SCAN_MB} fallback_mb=${FIRST_RUN_BACKFILL_MB} max_first_run_mb=${FIRST_RUN_MAX_TOTAL_MB} chunk_mb=${CHUNK_MB} max_seconds=${MAX_SECONDS_PER_RUN} python=$("$PYTHON_BIN" -V 2>&1 | tr -d '')"
 
-  # 0) Preflight backend: si NO está sano, PRESERVAR spool y salir limpiamente
+  check_spool_size || true
+
   if ! backend_reachable; then
     if [[ "$RESET_ON_BACKEND_DOWN" == "1" ]]; then
-      # PELIGROSO: solo si el usuario explícitamente lo configura
-      log "WARN backend_unhealthy: RESET_ON_BACKEND_DOWN=1 - PURGA DE SPOOL (PELIGROSO - PÉRDIDA DE EVENTOS)."
+      log "WARN backend_unhealthy: RESET_ON_BACKEND_DOWN=1 - PURGA DE SPOOL (PELIGROSO)."
       purge_spool
       reset_states
     else
-      # Comportamiento SEGURO (default): preservar spool y salir limpiamente
-      log "INFO backend_unhealthy: spool PRESERVADO. Se reintentará en la próxima ejecución. Estado: ${AGENT_STATE}"
+      log "INFO backend_unhealthy: spool PRESERVADO. Se reintentará en la próxima ejecución."
     fi
-    log "END (backend unhealthy - spool preserved by default)"
+    TELEMETRY_STOP_REASON="backend_unhealthy"
+    log "END (backend unhealthy - spool preserved)"
     return 0
   fi
 
   # 1) manda lo pendiente del spool primero
   if ! flush_spool; then
     if [[ "$RESET_ON_SEND_FAILURE" == "1" ]]; then
-      log "WARN flush_failed con RESET_ON_SEND_FAILURE=1: PURGA DE SPOOL (PELIGROSO - PÉRDIDA DE EVENTOS)."
+      log "WARN flush_failed con RESET_ON_SEND_FAILURE=1: PURGA DE SPOOL (PELIGROSO)."
       purge_spool
       reset_states
     else
       log "WARN flush_failed: spool PRESERVADO. Se reintentará en la próxima ejecución."
     fi
-    log "END (flush failed - spool preserved by default)"
+    TELEMETRY_STOP_REASON="flush_failed"
+    log "END (flush failed - spool preserved)"
     return 0
   fi
 
@@ -894,28 +966,59 @@ main() {
     [[ -n "${tag:-}" && -n "${path:-}" && -n "${name:-}" ]] || continue
     [[ -f "$path" ]] || continue
 
-    time_exceeded && { log "STOP time_exceeded before finishing sources"; break; }
+    if time_exceeded; then
+      TELEMETRY_STOP_REASON="max_seconds_reached"
+      log "STOP time_exceeded before finishing sources"
+      break
+    fi
+
     process_file_up_to_target "$path" "$tag" "$name"
+
+    if [[ "$TELEMETRY_STOP_REASON" == "max_payload_reached" || "$TELEMETRY_STOP_REASON" == "high_load_triggered" ]]; then
+      break
+    fi
   done < <(collect_log_sources "$mode_detected")
 
   # 3) SAR si hay tiempo
-  time_exceeded || sar_send_logic
+  if ! time_exceeded && [[ "$TELEMETRY_STOP_REASON" == "completed" ]]; then
+    sar_send_logic
+  fi
 
   # 4) flush final
   if ! flush_spool; then
     if [[ "$RESET_ON_SEND_FAILURE" == "1" ]]; then
-      log "WARN final_flush_failed con RESET_ON_SEND_FAILURE=1: PURGA DE SPOOL (PELIGROSO)."
+      log "WARN final_flush_failed con RESET_ON_SEND_FAILURE=1: PURGA DE SPOOL."
       purge_spool
       reset_states
     else
-      log "WARN final_flush_failed: spool PRESERVADO (HTTP ${LAST_HTTP_CODE:-000}, curl_exit=${LAST_CURL_EXIT:-0}, reason=[${LAST_FAILURE_REASON:-unknown}]). Se reintentará en la próxima ejecución."
+      log "WARN final_flush_failed: spool PRESERVADO (HTTP ${LAST_HTTP_CODE:-000})."
     fi
+    TELEMETRY_STOP_REASON="final_flush_failed"
     log "END (final flush failed - spool preserved)"
     return 0
   fi
 
-  # Éxito completo
   set_agent_state "healthy"
+
+  # Resumen de Telemetría al finalizar
+  local duration_sec=$(( $(date +%s) - RUN_START_EPOCH ))
+  local cpu_cores
+  cpu_cores="$(get_cpu_cores)"
+  local load_end
+  load_end="$(get_load_1min)"
+
+  shopt -s nullglob
+  local remaining_jobs=( "${SPOOL_DIR}"/* )
+  shopt -u nullglob
+  TELEMETRY_JOBS_PENDING=${#remaining_jobs[@]}
+
+  local latency_avg=0
+  if (( TELEMETRY_HTTP_REQUESTS > 0 )); then
+    latency_avg=$(( TELEMETRY_LATENCY_SUM_MS / TELEMETRY_HTTP_REQUESTS ))
+  fi
+
+  log "TELEMETRY summary duration_sec=${duration_sec} cpu_cores=${cpu_cores} load_start=${load_start} load_end=${load_end} load_peak=${TELEMETRY_LOAD_PEAK} files_scanned=${TELEMETRY_FILES_SCANNED} files_changed=${TELEMETRY_FILES_CHANGED} files_processed=${TELEMETRY_FILES_PROCESSED} jobs_enqueued=${TELEMETRY_JOBS_ENQUEUED} jobs_sent=${TELEMETRY_JOBS_SENT} jobs_pending=${TELEMETRY_JOBS_PENDING} raw_bytes=${TELEMETRY_RAW_BYTES} compressed_bytes=${TELEMETRY_COMPRESSED_BYTES} http_requests=${TELEMETRY_HTTP_REQUESTS} http_failures=${TELEMETRY_HTTP_FAILURES} backend_latency_avg_ms=${latency_avg} throttle_mode=${TELEMETRY_THROTTLE_MODE} throttle_sleeps=${TELEMETRY_THROTTLE_SLEEPS} stop_reason=${TELEMETRY_STOP_REASON}"
+
   log "END success state=${AGENT_STATE}"
 }
 
