@@ -89,7 +89,7 @@ def _parse_ts(hms: str, ampm: Optional[str], d: date) -> datetime:
 
 
 class SarStatsParser(LogParser):
-    source = "SAR_STATS"
+    source = "SAR"
 
     def __init__(self) -> None:
         self._current_date: Optional[date] = None

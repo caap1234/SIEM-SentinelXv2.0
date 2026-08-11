@@ -109,10 +109,10 @@ class ParsedEvent:
         http_method = http_data.get("method") or panel_data.get("http_method")
         http_status = http_data.get("status") or panel_data.get("status_code")
 
-        # GeoIP ISO Code handling: Nunca usar "PRV" como código ISO de país
+        # GeoIP ISO Code handling: Nunca usar "PRV" o "UNK" como código ISO de país
         country_code = geo_data.get("country_code") or extra.get("country_iso")
         is_private = bool(geo_data.get("is_private") or extra.get("is_private") or (country_code == "PRV"))
-        geo_country_iso = None if is_private or country_code == "PRV" else country_code
+        geo_country_iso = None if is_private or country_code in ("PRV", "UNK") else country_code
 
         labels_map: Dict[str, str] = {}
         if is_private:

@@ -43,13 +43,21 @@ _asn_loaded_path: Optional[str] = None
 def _open_reader(path: str) -> Optional[geoip2.database.Reader]:
     if not path:
         return None
-    p = Path(path)
-    if not p.exists() or not p.is_file():
-        return None
-    try:
-        return geoip2.database.Reader(str(p))
-    except Exception:
-        return None
+    candidates = [
+        path,
+        path.replace("/opt/sentinelx/geoip/", "/geoip/"),
+        f"/geoip/{os.path.basename(path)}",
+        f"/app/geoip/{os.path.basename(path)}",
+    ]
+    for c in candidates:
+        if c:
+            p = Path(c)
+            if p.exists() and p.is_file():
+                try:
+                    return geoip2.database.Reader(str(p))
+                except Exception:
+                    pass
+    return None
 
 
 def _get_country_reader() -> Optional[geoip2.database.Reader]:
@@ -246,15 +254,15 @@ def enrich_ip_into_extra(
         if cached is not None:
             geo_existing.update(cached)
         else:
-            cc = "UNK"
-            name = "Unknown"
+            cc = None
+            name = None
             try:
                 if country_reader is not None:
                     resp = country_reader.country(ip)
-                    cc = resp.country.iso_code or "UNK"
-                    name = resp.country.name or "Unknown"
+                    cc = resp.country.iso_code
+                    name = resp.country.name
             except Exception:
-                cc, name = "UNK", "Unknown"
+                cc, name = None, None
 
             val = {"is_private": False, "country_code": cc, "country_name": name}
             _cache_set(_geo_cache, ip, val)

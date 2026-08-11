@@ -124,26 +124,41 @@ class EximMainlogParser(LogParser):
     ) -> Optional[ParsedEvent]:
         line = line or ""
 
+        # Extract Exim queue_id/msgid if present (supports standard & cPanel 64-bit IDs)
+        m_queue = re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s+(?P<queue_id>[0-9A-Za-z]{6}-[0-9A-Za-z\-]+-[0-9A-Za-z]{2,4})\b", line)
+        queue_id = m_queue.group("queue_id") if m_queue else None
+
+        # Extract client IP in brackets if present
+        m_ip = re.search(r"\[(?P<ip>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\]", line)
+        fallback_ip = m_ip.group("ip") if m_ip else None
+
+        # Helper to inject queue_id into extra
+        def _build_extra(base_extra: Dict[str, Any]) -> Dict[str, Any]:
+            if queue_id:
+                base_extra["queue_id"] = queue_id
+                base_extra["exim_id"] = queue_id
+                base_extra["msgid"] = queue_id
+            return base_extra
+
         # AUTH FAIL (submission)
         m_fail = EXIM_AUTH_FAIL.search(line)
         if m_fail:
             ts = parse_any_timestamp_to_utc(m_fail.group("time") or "")
             ip = (m_fail.group("ip") or "").strip() or None
-            msg = (m_fail.group("msg") or "").strip()
             return ParsedEvent(
                 timestamp_utc=ts,
                 server=server,
                 source=self.source,
                 service="SMTP",
-                ip_client=ip,
-                message=f"SMTP AUTH FAIL: {msg}",
-                extra={
+                ip_client=ip or fallback_ip,
+                message=line,
+                extra=_build_extra({
                     "event_type": "auth_login",
                     "protocol": "smtp",
                     "action": "fail",
                     "direction": "outbound",
                     "auth_success": False,
-                },
+                }),
                 log_upload_id=log_upload_id,
             )
 
@@ -164,11 +179,11 @@ class EximMainlogParser(LogParser):
                 server=server,
                 source=self.source,
                 service="SMTP",
-                ip_client=ip,
+                ip_client=ip or fallback_ip,
                 domain=dom or from_domain,
                 username=user,
-                message="SMTP AUTH OK (submission)",
-                extra={
+                message=line,
+                extra=_build_extra({
                     "event_type": "auth_login",
                     "protocol": "smtp",
                     "action": "success",
@@ -176,7 +191,7 @@ class EximMainlogParser(LogParser):
                     "auth_user": user,
                     "mail_from": from_addr,
                     "auth_success": True,
-                },
+                }),
                 log_upload_id=log_upload_id,
             )
 
@@ -196,9 +211,10 @@ class EximMainlogParser(LogParser):
                 server=server,
                 source=self.source,
                 service="SMTP",
+                ip_client=fallback_ip,
                 domain=domain or rcpt_dom,
-                message="SMTP OUTBOUND RATE LIMIT (discarded)",
-                extra={
+                message=line,
+                extra=_build_extra({
                     "event_type": "mail_flow",
                     "direction": "outbound",
                     "action": "fail",
@@ -206,7 +222,7 @@ class EximMainlogParser(LogParser):
                     "recipient": rcpt,
                     "policy_domain": domain,
                     "detail": detail,
-                },
+                }),
                 log_upload_id=log_upload_id,
             )
 
@@ -223,16 +239,17 @@ class EximMainlogParser(LogParser):
                 server=server,
                 source=self.source,
                 service="SMTP",
+                ip_client=fallback_ip,
                 domain=dom,
-                message="SMTP OUTBOUND FAIL",
-                extra={
+                message=line,
+                extra=_build_extra({
                     "event_type": "mail_flow",
                     "direction": "outbound",
                     "action": "fail",
                     "kind": "delivery_failure",
                     "recipient": rcpt,
                     "reason": reason,
-                },
+                }),
                 log_upload_id=log_upload_id,
             )
 
@@ -259,10 +276,10 @@ class EximMainlogParser(LogParser):
                 server=server,
                 source=self.source,
                 service="SMTP",
-                ip_client=ip,
+                ip_client=ip or fallback_ip,
                 domain=rcpt_domain or from_domain,
-                message="SMTP INBOUND",
-                extra={
+                message=line,
+                extra=_build_extra({
                     "event_type": "mail_flow",
                     "direction": "inbound",
                     "from": from_addr,
@@ -270,7 +287,7 @@ class EximMainlogParser(LogParser):
                     "proto": proto,
                     "subject": subject,
                     "auth_success": False,
-                },
+                }),
                 log_upload_id=log_upload_id,
             )
 
@@ -288,16 +305,16 @@ class EximMainlogParser(LogParser):
                 server=server,
                 source=self.source,
                 service="SMTP",
-                ip_client=ip,
+                ip_client=ip or fallback_ip,
                 domain=from_domain,
-                message="SMTP INBOUND",
-                extra={
+                message=line,
+                extra=_build_extra({
                     "event_type": "mail_flow",
                     "direction": "inbound",
                     "from": from_addr,
                     "proto": proto,
                     "auth_success": False,
-                },
+                }),
                 log_upload_id=log_upload_id,
             )
 
@@ -319,12 +336,12 @@ class EximMainlogParser(LogParser):
 
             _, to_domain = _split_addr(to_addr or "")
 
-            extra = {
+            extra = _build_extra({
                 "event_type": "mail_flow",
                 "direction": "outbound",
                 "to": to_addr,
                 "auth_success": False,
-            }
+            })
             if code:
                 extra["smtp_reply_code"] = int(code) if code.isdigit() else code
             if action:
@@ -332,24 +349,14 @@ class EximMainlogParser(LogParser):
             if kind:
                 extra["kind"] = kind
 
-            # Mensaje más claro según acción
-            if action == "success":
-                msg = "SMTP OUTBOUND DELIVERED"
-            elif action == "defer":
-                msg = "SMTP OUTBOUND DEFERRED"
-            elif action == "fail":
-                msg = "SMTP OUTBOUND FAILED"
-            else:
-                msg = "SMTP OUTBOUND"
-
             return ParsedEvent(
                 timestamp_utc=ts,
                 server=server,
                 source=self.source,
                 service="SMTP",
-                ip_client=ip,
+                ip_client=ip or fallback_ip,
                 domain=to_domain,
-                message=msg,
+                message=line,
                 extra=extra,
                 log_upload_id=log_upload_id,
             )
@@ -364,15 +371,16 @@ class EximMainlogParser(LogParser):
                 server=server,
                 source=self.source,
                 service="SMTP",
+                ip_client=fallback_ip,
                 domain=dom,
-                message=f"INVALID DOMAIN for {rcpt}",
-                extra={
+                message=line,
+                extra=_build_extra({
                     "event_type": "mail_flow",
                     "direction": "outbound",
                     "action": "fail",
                     "kind": "invalid_domain",
                     "recipient": rcpt,
-                },
+                }),
                 log_upload_id=log_upload_id,
             )
 
