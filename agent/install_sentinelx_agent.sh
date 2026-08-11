@@ -55,7 +55,7 @@ pkill -f sentinelx-agent.sh 2>/dev/null || true
 # -------------------------------------------------------------------
 echo "[3/9] Descargando la versión más reciente del agente..."
 TMP_AGENT="$(mktemp)"
-curl -fsSL "$AGENT_URL" -o "$TMP_AGENT"
+curl -fsSL -H "Cache-Control: no-cache, no-store, must-revalidate" -H "Pragma: no-cache" "$AGENT_URL" -o "$TMP_AGENT"
 
 echo "[4/9] Instalando binario en $AGENT_BIN ..."
 rm -f "$AGENT_BIN"
