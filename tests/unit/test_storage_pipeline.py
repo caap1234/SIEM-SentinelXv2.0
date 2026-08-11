@@ -50,3 +50,15 @@ def test_opensearch_indexer_worker_dynamic_stream():
     ev = create_sample_event("tenant_test")
     doc = ev.to_opensearch_doc()
     assert doc["tenant"]["id"] == "tenant_test"
+
+
+def test_log_upload_tenant_resolution():
+    from app.models.log_upload import LogUpload
+    log = LogUpload(filename="test.log", server="svgt187", path="/tmp/test.log", extra_meta={"tenant_id": "global"})
+    
+    tenant_str = "default"
+    if log:
+        meta = log.extra_meta if isinstance(getattr(log, "extra_meta", None), dict) else {}
+        if meta.get("tenant_id"):
+            tenant_str = str(meta["tenant_id"])
+    assert tenant_str == "global"

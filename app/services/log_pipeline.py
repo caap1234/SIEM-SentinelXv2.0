@@ -428,11 +428,15 @@ def parse_log_file(file_path: str, server: str, log_type: str, upload_id: int) -
 
                         # Acumular evento canónico para publicación masiva por lotes a NATS (OpenSearch & S3)
                         try:
-                            tenant_str = str(log.tenant_id or "default") if log else "default"
+                            tenant_str = "default"
+                            if log:
+                                meta = log.extra_meta if isinstance(getattr(log, "extra_meta", None), dict) else {}
+                                if meta.get("tenant_id"):
+                                    tenant_str = str(meta["tenant_id"])
                             norm_ev = pe.to_normalized_event(tenant_id=tenant_str)
                             nats_batch_events.append(norm_ev)
                         except Exception as nats_err:
-                            logger.debug("NATS event conversion notice: %s", nats_err)
+                            logger.warning("Error al convertir evento a canónico para NATS: %s", nats_err)
 
                         events_created += 1
                         lines_parsed += 1
