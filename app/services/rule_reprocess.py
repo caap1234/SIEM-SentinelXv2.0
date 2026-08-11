@@ -10,6 +10,7 @@ from app.models.event import Event
 from app.models.rule_state_v2 import RuleStateV2
 from app.models.rule_v2 import RuleV2
 from app.core.opensearch_client import OpenSearchClient
+from app.services.rule_engine_v2 import RuleEngineV2
 try:
     from opensearchpy import helpers
 except ImportError:
