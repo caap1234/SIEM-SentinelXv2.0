@@ -540,20 +540,27 @@ class RuleEngineV2:
 
         candidates = sorted(candidates, key=lambda rr: int(rr.id))
 
-        ev_ts = _utc(_get_from_event(snap, "timestamp_utc")) or datetime.now(timezone.utc)
+        ts_val = _get_from_event(snap, "timestamp_utc") or _get_from_event(snap, "@timestamp") or _get_from_event(snap, "timestamp")
+        if isinstance(ts_val, str):
+            from app.core.timeutils import parse_any_timestamp_to_utc
+            ev_ts = parse_any_timestamp_to_utc(ts_val)
+        elif isinstance(ts_val, datetime):
+            ev_ts = _utc(ts_val)
+        else:
+            ev_ts = datetime.now(timezone.utc)
 
         geo = extra.get("geo")
         if not isinstance(geo, dict) or not geo:
-            geo = extra.get("geoip")
+            geo = extra.get("geoip") or _get_from_event(snap, "source")
         if not isinstance(geo, dict):
             geo = None
 
         asn = extra.get("asn") if isinstance(extra.get("asn"), dict) else None
-        geo_country = geo.get("country_code") if isinstance(geo, dict) else None
+        geo_country = (geo.get("country_code") or geo.get("geo_country_iso_code")) if isinstance(geo, dict) else None
 
-        ev_ip = _as_str(_get_from_event(snap, "ip_client")).strip() or None
-        ev_user = _as_str(_get_from_event(snap, "username")).strip() or None
-        ev_server = _as_str(_get_from_event(snap, "server")).strip() or None
+        ev_ip = _as_str(_get_from_event(snap, "ip_client") or _get_from_event(snap, "source.ip") or _get_from_event(snap, "client.ip")).strip() or None
+        ev_user = _as_str(_get_from_event(snap, "username") or _get_from_event(snap, "user.name")).strip() or None
+        ev_server = _as_str(_get_from_event(snap, "server") or _get_from_event(snap, "host.name") or _get_from_event(snap, "host.hostname")).strip() or None
         ev_action = _extract_action_for_window(extra)
         ev_subnet24 = _ip_subnet(ev_ip, 24)
 

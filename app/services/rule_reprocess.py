@@ -103,8 +103,7 @@ def reprocess_events(
                         "lte": tmax.isoformat(),
                     }
                 }
-            },
-            "sort": [{"@timestamp": {"order": "asc"}}]
+            }
         }
         if server:
             q_body["query"] = {
@@ -117,7 +116,7 @@ def reprocess_events(
             }
 
         try:
-            for item in helpers.scan(os_client.client, query=q_body, index="sentinelx-events-*"):
+            for item in helpers.scan(os_client.client, query=q_body, index="sentinelx-events-*", preserve_order=True):
                 scanned += 1
                 if scanned > max_events:
                     break
@@ -128,7 +127,8 @@ def reprocess_events(
                 if scanned % 2000 == 0:
                     db.flush()
         except Exception as e:
-            pass
+            import logging
+            logging.getLogger("sentinelx.reprocess").error(f"OpenSearch scan error at doc {scanned}: {e}")
 
     # 2) Fallback to PostgreSQL Event table if OpenSearch yielded 0 events and table exists
     if scanned == 0:
