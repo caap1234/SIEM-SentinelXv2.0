@@ -5,6 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException
 
+from app.config import settings
 from app.services.blacklistmaster_sync import run_blacklistmaster_sync
 
 router = APIRouter(
@@ -22,7 +23,7 @@ def sync_blacklistmaster(
 
     Protegido por X-Internal-Token (shared secret).
     """
-    expected = os.getenv("INTERNAL_JOBS_TOKEN", "").strip()
+    expected = (os.getenv("INTERNAL_JOBS_TOKEN") or getattr(settings, "INTERNAL_JOBS_TOKEN", "")).strip()
     if not expected:
         raise HTTPException(status_code=500, detail="Missing env INTERNAL_JOBS_TOKEN")
 
