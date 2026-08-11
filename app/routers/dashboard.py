@@ -628,31 +628,72 @@ def get_soc_dashboard_summary(
 @v1_dashboard_router.get("/activity")
 def get_soc_dashboard_activity(
     ctx: AuthContext = Depends(require_permission("ingest.read")),
+    db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """
-    Retorna la serie temporal de actividad de eventos (últimas 24 horas).
+    Retorna la serie temporal de actividad de alertas reales (últimas 24 horas por hora).
     """
     now = datetime.now(timezone.utc)
+    start = now - timedelta(hours=24)
+
+    code_expr = func.split_part(Alert.rule_name, " ", 1)
+    hour_expr = func.date_trunc("hour", Alert.triggered_at)
+
+    bots_codes = ["WEB-001", "WEB-002", "WEB-004", "WEB-007"]
+    exploit_codes = ["WEB-003"]
+    wp_codes = ["WEB-005"]
+
+    try:
+        rows = (
+            db.query(
+                hour_expr.label("hour"),
+                func.count(Alert.id).label("total"),
+                func.sum(case((code_expr.like("AUTH-%"), 1), else_=0)).label("bruteforce"),
+                func.sum(case((code_expr.in_(bots_codes), 1), else_=0)).label("bots"),
+                func.sum(case((code_expr.in_(exploit_codes), 1), else_=0)).label("exploits"),
+                func.sum(case((code_expr.in_(wp_codes), 1), else_=0)).label("wp"),
+            )
+            .filter(Alert.triggered_at >= start, Alert.triggered_at <= now)
+            .group_by(hour_expr)
+            .order_by(hour_expr.asc())
+            .all()
+        )
+    except Exception:
+        rows = []
+
+    by_hour: Dict[str, Any] = {}
+    for r in rows:
+        d = _utc(r.hour) or r.hour
+        key = d.strftime("%H:00")
+        by_hour[key] = r
+
     series = []
-    for i in range(24, 0, -1):
+    for i in range(23, -1, -1):
         t = now - timedelta(hours=i)
         t_str = t.strftime("%H:00")
+        r = by_hour.get(t_str)
+
+        brute = int(getattr(r, "bruteforce", 0) or 0) if r else 0
+        bots = int(getattr(r, "bots", 0) or 0) if r else 0
+        exploits = int(getattr(r, "exploits", 0) or 0) if r else 0
+        wp = int(getattr(r, "wp", 0) or 0) if r else 0
+        total_alerts = int(getattr(r, "total", 0) or 0) if r else 0
+
         series.append({
             "date": t_str,
             "label": t_str,
             "timestamp": t_str,
-            "bruteForce": (i * 17 + 5) % 80,
-            "bots": (i * 23 + 3) % 60,
-            "exploits": (i * 7 + 1) % 20,
-            "wpCoreErrors": (i * 3 + 2) % 15,
-            "fileAnomalies": (i * 2 + 1) % 10,
-            "mailThreats": (i * 5 + 4) % 30,
-            "panelAccess": (i * 9 + 2) % 25,
-            "events": (i * 137 + 42) % 450 + 100,
-            "alerts": (i * 3 + 1) % 15,
+            "bruteForce": brute,
+            "bots": bots,
+            "exploits": exploits,
+            "wpCoreErrors": wp,
+            "fileAnomalies": 0,
+            "mailThreats": 0,
+            "panelAccess": 0,
+            "events": 0,
+            "alerts": total_alerts,
         })
     return {"tenant_id": ctx.tenant_id, "series": series}
-
 
 
 @v1_dashboard_router.get("/alerts/recent")
@@ -685,39 +726,31 @@ def get_soc_recent_alerts(
 @v1_dashboard_router.get("/agents/status")
 def get_soc_agents_status(
     ctx: AuthContext = Depends(require_permission("ingest.read")),
+    db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """
-    Retorna el estado de salud, heartbeat y consumo de recursos de los agentes Linux.
+    Retorna el estado de salud, heartbeat y consumo de recursos de los agentes Linux registrados.
     """
-    agents = [
-        {
-            "hostname": "srv-cpanel-01.hosting.com",
-            "status": "healthy",
-            "version": "1.2.0",
-            "last_heartbeat": datetime.now(timezone.utc).isoformat(),
-            "cpu_percent": 12.5,
-            "memory_percent": 45.2,
-            "spool_events": 0,
-        },
-        {
-            "hostname": "srv-exim-02.hosting.com",
-            "status": "healthy",
-            "version": "1.2.0",
-            "last_heartbeat": datetime.now(timezone.utc).isoformat(),
-            "cpu_percent": 24.1,
-            "memory_percent": 62.0,
-            "spool_events": 12,
-        },
-        {
-            "hostname": "srv-web-03.hosting.com",
-            "status": "delayed",
-            "version": "1.1.9",
-            "last_heartbeat": (datetime.now(timezone.utc) - timedelta(minutes=4)).isoformat(),
-            "cpu_percent": 88.4,
-            "memory_percent": 91.3,
-            "spool_events": 450,
-        },
-    ]
+    try:
+        registered = db.query(RegisteredAgent).filter(RegisteredAgent.tenant_id == ctx.tenant_id).all()
+        agents = []
+        now_utc = datetime.now(timezone.utc)
+        for ag in registered:
+            ls = _utc(ag.last_seen_at) if ag.last_seen_at else None
+            status = "healthy"
+            if ls and (now_utc - ls).total_seconds() > 300:
+                status = "offline"
+            agents.append({
+                "hostname": ag.hostname,
+                "status": status,
+                "version": ag.version or "1.2.0",
+                "last_heartbeat": ls.isoformat() if ls else None,
+                "cpu_percent": 0.0,
+                "memory_percent": 0.0,
+                "spool_events": 0,
+            })
+    except Exception:
+        agents = []
     return {"tenant_id": ctx.tenant_id, "agents": agents}
 
 
