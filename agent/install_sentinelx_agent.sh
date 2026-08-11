@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AGENT_URL="https://raw.githubusercontent.com/caap1234/SIEM-SentinelXv2.0/main/agent/sentinelx-agent.sh"
+AGENT_URL="https://raw.githubusercontent.com/caap1234/SIEM-SentinelXv2.0/main/agent/sentinelx-agent.sh?v=$(date +%s)"
 AGENT_BIN="/usr/local/bin/sentinelx-agent.sh"
 ENV_FILE="/etc/sentinelx-agent.env"
 LOG_FILE="/var/log/sentinelx-agent.log"

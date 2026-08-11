@@ -201,16 +201,7 @@ check_spool_size() {
 # ------------------------------------------------------------
 backend_reachable() {
   local http_code
-  http_code="$(
-    curl -sS \
-      --connect-timeout "$CONNECT_TIMEOUT" \
-      --max-time "$CONNECT_TIMEOUT" \
-      -H "X-API-Key: ${SENTINELX_API_KEY}" \
-      -o /dev/null \
-      -w "%{http_code}" \
-      -I \
-      "$SENTINELX_INGEST_URL" || true
-  )"
+  http_code="$(curl -sS --connect-timeout "$CONNECT_TIMEOUT" --max-time "$CONNECT_TIMEOUT" -H "X-API-Key: ${SENTINELX_API_KEY}" -o /dev/null -w "%{http_code}" -I "$SENTINELX_INGEST_URL" || true)"
 
   if [[ -z "$http_code" || "$http_code" == "000" ]]; then
     set_agent_state "offline" "no_http_response connect_timeout=${CONNECT_TIMEOUT}s"
@@ -221,6 +212,12 @@ backend_reachable() {
   if [[ "$http_code" == "401" || "$http_code" == "403" ]]; then
     set_agent_state "authentication_failed" "http_code=${http_code}"
     return 1
+  fi
+
+  # 405 Method Not Allowed / 422 / 2xx / 3xx => el servidor HTTP del SIEM está vivo y respondiendo!
+  if [[ "$http_code" == "405" || "$http_code" == "422" || "$http_code" =~ ^2 || "$http_code" =~ ^3 || "$http_code" == "404" ]]; then
+    set_agent_state "healthy"
+    return 0
   fi
 
   # 5xx y 429 => backend degradado
