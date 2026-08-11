@@ -515,11 +515,21 @@ class RuleEngineV2:
         alerts: List[Alert] = []
         snap = _event_snapshot(event)
 
-        src = _norm_source(_as_str(_get_from_event(snap, "source")) or None)
+        src_val = _get_from_event(snap, "source")
+        if isinstance(src_val, dict) or not isinstance(src_val, str) or not src_val:
+            src_val = _get_from_event(snap, "event.dataset") or _get_from_event(snap, "dataset")
+        src = _norm_source(_as_str(src_val))
 
         ev_extra = _get_from_event(snap, "extra") or {}
         extra = ev_extra if isinstance(ev_extra, dict) else {}
-        et = _norm_event_type(_as_str(extra.get("event_type")))
+
+        et_val = (
+            extra.get("event_type")
+            or _get_from_event(snap, "event.action")
+            or _get_from_event(snap, "action")
+            or _get_from_event(snap, "service.name")
+        )
+        et = _norm_event_type(_as_str(et_val))
 
         if not src or not et:
             return alerts
