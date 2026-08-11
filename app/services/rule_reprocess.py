@@ -9,7 +9,11 @@ from app.models.alert import Alert
 from app.models.event import Event
 from app.models.rule_state_v2 import RuleStateV2
 from app.models.rule_v2 import RuleV2
-from app.services.rule_engine_v2 import RuleEngineV2
+from app.core.opensearch_client import OpenSearchClient
+try:
+    from opensearchpy import helpers
+except ImportError:
+    helpers = None
 
 
 def _utc(dt: datetime) -> datetime:
@@ -87,18 +91,65 @@ def reprocess_events(
     scanned = 0
     alerts_created = 0
 
-    # yield_per para no cargar todo en RAM
-    for ev in q_events.yield_per(1000):
-        scanned += 1
-        if scanned > max_events:
-            break
+    # 1) Scan OpenSearch Data Stream (SentinelX primary storage for normalized events)
+    os_client = OpenSearchClient.get_instance()
+    if os_client.connect():
+        q_body = {
+            "query": {
+                "range": {
+                    "@timestamp": {
+                        "gte": tmin.isoformat(),
+                        "lte": tmax.isoformat(),
+                    }
+                }
+            },
+            "sort": [{"@timestamp": {"order": "asc"}}]
+        }
+        if server:
+            q_body["query"] = {
+                "bool": {
+                    "must": [
+                        {"range": {"@timestamp": {"gte": tmin.isoformat(), "lte": tmax.isoformat()}}},
+                        {"term": {"host.hostname": server}}
+                    ]
+                }
+            }
 
-        # engine.on_event agrega Alert/State al db
-        alerts = engine.on_event(db, ev)
-        alerts_created += len(alerts)
+        try:
+            for item in helpers.scan(os_client.client, query=q_body, index="sentinelx-events-*"):
+                scanned += 1
+                if scanned > max_events:
+                    break
+                ev_dict = item.get("_source", {})
+                alerts = engine.on_event(db, ev_dict)
+                alerts_created += len(alerts)
 
-        if scanned % 2000 == 0:
-            db.flush()
+                if scanned % 2000 == 0:
+                    db.flush()
+        except Exception as e:
+            pass
+
+    # 2) Fallback to PostgreSQL Event table if OpenSearch yielded 0 events and table exists
+    if scanned == 0:
+        try:
+            q_events = db.query(Event).filter(Event.timestamp_utc >= tmin, Event.timestamp_utc <= tmax)
+            if server:
+                q_events = q_events.filter(Event.server == server)
+
+            q_events = q_events.order_by(Event.timestamp_utc.asc())
+
+            for ev in q_events.yield_per(1000):
+                scanned += 1
+                if scanned > max_events:
+                    break
+
+                alerts = engine.on_event(db, ev)
+                alerts_created += len(alerts)
+
+                if scanned % 2000 == 0:
+                    db.flush()
+        except Exception:
+            pass
 
     db.commit()
 
