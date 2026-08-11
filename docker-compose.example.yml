@@ -220,6 +220,27 @@ services:
     command: >
       bash -lc "python -m app.workers.minio_evidence_worker"
 
+  correlation_worker:
+    build:
+      context: .
+    restart: unless-stopped
+    depends_on:
+      nats:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NATS_URL: "nats://nats:4222"
+      DATABASE_URL: "postgresql://sentinelx:sentinelx_pass@db:5432/sentinelx_db"
+    volumes:
+      - .:/app
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    command: >
+      bash -lc "python -m app.workers.correlation_worker"
+
 volumes:
   pgdata:
   natsdata:

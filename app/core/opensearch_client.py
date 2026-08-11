@@ -184,6 +184,9 @@ class OpenSearchClient:
             else:
                 query_body["query"]["bool"]["filter"] = [filters, tenant_filter]
 
+        if "track_total_hits" not in query_body:
+            query_body["track_total_hits"] = True
+
         try:
             res = self.client.search(index=target_stream, body=query_body)
             return res
