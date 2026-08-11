@@ -472,7 +472,7 @@ def parse_log_file(file_path: str, server: str, log_type: str, upload_id: int) -
 
         log = db.query(LogUpload).filter(LogUpload.id == upload_id).first()
         if log:
-            log.status = "parsed_with_errors" if lines_failed > 0 else "parsed"
+            log.status = "parsed_with_errors" if lines_failed > 0 else "processed"
             log.error_message = f"{lines_failed} line parse errors encountered" if lines_failed > 0 else None
             _update_log_meta(
                 log,
@@ -487,6 +487,7 @@ def parse_log_file(file_path: str, server: str, log_type: str, upload_id: int) -
             )
             meta = dict(log.extra_meta or {})
             meta["parsing_finished_at"] = _now_iso()
+            meta["engine_finished_at"] = _now_iso()
             log.extra_meta = meta
             db.commit()
 

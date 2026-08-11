@@ -175,17 +175,12 @@ def _mark_parsed_or_processed(db: Session, upload_id: int) -> None:
     events_count = int(meta.get("events_created", 0))
 
     meta["parsing_finished_at"] = _now_iso()
+    meta["engine_finished_at"] = _now_iso()
     meta["events_count"] = events_count
     job.extra_meta = meta
 
-    if job.status == "parsing":
-        job.status = "parsed"
-
-    if events_count == 0 and job.status in ("parsed", "parsing"):
+    if job.status in ("parsing", "parsed"):
         job.status = "processed"
-        meta["engine_finished_at"] = _now_iso()
-        meta["note"] = "no_events_generated"
-        job.extra_meta = meta
 
     db.commit()
 
