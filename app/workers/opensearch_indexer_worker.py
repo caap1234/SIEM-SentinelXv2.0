@@ -82,9 +82,11 @@ class OpenSearchIndexerWorker:
 
         # 2. Bulk index en OpenSearch
         try:
+            target_tenant = parsed_events[0].tenant.id if parsed_events and getattr(parsed_events[0], "tenant", None) else "default"
+            target_stream = f"sentinelx-events-{target_tenant}"
             success_count, failed_items = self.opensearch_client.bulk_index_events(
                 events=parsed_events,
-                target_stream="sentinelx-events-hosting-default",
+                target_stream=target_stream,
             )
         except OpenSearchUnavailableError as err:
             logger.warning("OpenSearch fuera de línea. Los mensajes NO serán confirmados en NATS: %s", err)

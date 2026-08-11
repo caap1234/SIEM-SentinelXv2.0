@@ -40,31 +40,31 @@ import logging
 logger = logging.getLogger("sentinelx.log_pipeline")
 
 
+_NATS_SYNC_LOOP = None
+
+def _get_or_create_nats_loop():
+    global _NATS_SYNC_LOOP
+    if _NATS_SYNC_LOOP is None or _NATS_SYNC_LOOP.is_closed():
+        import asyncio
+        _NATS_SYNC_LOOP = asyncio.new_event_loop()
+    return _NATS_SYNC_LOOP
+
+
 def _publish_batch_to_nats_sync(events: List[NormalizedEvent]) -> None:
-    """Publica sincrónicamente un lote de eventos normalizados en NATS JetStream."""
+    """Publica sincrónicamente un lote de eventos normalizados en NATS JetStream sin cerrar el socket."""
     if not events:
         return
     try:
         import asyncio
-        async def _pub_all():
+        loop = _get_or_create_nats_loop()
+        async def _run():
             srv = NatsService.get_instance()
-            if not srv._connected or not srv.js:
-                await srv.connect()
-            if srv.js:
-                for ev in events:
-                    try:
-                        await srv.publish_normalized_event(ev)
-                    except Exception as err:
-                        logger.debug("Error publicando evento en batch NATS: %s", err)
+            await srv.publish_batch_normalized_events(events)
 
-        try:
-            loop = asyncio.get_running_loop()
-            asyncio.create_task(_pub_all())
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(_pub_all())
-            loop.close()
+        if loop.is_running():
+            asyncio.run_coroutine_threadsafe(_run(), loop)
+        else:
+            loop.run_until_complete(_run())
     except Exception as e:
         logger.debug("NATS sync batch publish notice: %s", e)
 
@@ -421,7 +421,10 @@ def parse_log_file(file_path: str, server: str, log_type: str, upload_id: int) -
                             )
                             raw_saved += 1
 
-                        _persist_event(db, pe, inferred_domain=inferred_domain)
+                        # Persistir en PostgreSQL únicamente si PERSIST_EVENTS_TO_POSTGRES=1 (Default: 0 para evitar bloat)
+                        persist_events_db = (os.getenv("PERSIST_EVENTS_TO_POSTGRES", "0").strip() in ("1", "true", "True"))
+                        if persist_events_db:
+                            _persist_event(db, pe, inferred_domain=inferred_domain)
 
                         # Acumular evento canónico para publicación masiva por lotes a NATS (OpenSearch & S3)
                         try:

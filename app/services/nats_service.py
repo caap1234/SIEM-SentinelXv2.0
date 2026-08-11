@@ -131,6 +131,40 @@ class NatsService:
             logger.error("Fallo al publicar evento %s en NATS JetStream: %s", event.event.id, e)
             raise NatsServiceError(f"Fallo al publicar evento en NATS: {e}") from e
 
+    async def publish_batch_normalized_events(
+        self,
+        events: List[NormalizedEvent],
+        subject: str = SUBJECT_NORMALIZED_HOSTING,
+    ) -> int:
+        """
+        Publica masivamente una lista de eventos canónicos en NATS JetStream.
+        """
+        if not events:
+            return 0
+
+        if not self._connected or not self.js:
+            connected = await self.connect()
+            if not connected:
+                raise NatsUnavailableError("Servicio NATS JetStream fuera de línea")
+
+        success_count = 0
+        for ev in events:
+            try:
+                event_dict = ev.to_opensearch_doc()
+                payload = json.dumps(event_dict, default=str).encode("utf-8")
+                headers = {"Nats-Msg-Id": str(ev.event.id)}
+                await self.js.publish(
+                    subject=subject,
+                    payload=payload,
+                    headers=headers,
+                    timeout=5,
+                )
+                success_count += 1
+            except Exception as err:
+                logger.error("Error al publicar evento %s en batch NATS: %s", ev.event.id, err)
+
+        return success_count
+
     async def publish_raw_batch(
         self,
         batch_id: str,
