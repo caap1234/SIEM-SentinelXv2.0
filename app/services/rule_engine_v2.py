@@ -278,6 +278,8 @@ def _get_from_event(event: EventLike, path: str) -> Any:
         )
         if val in ("failure", "fail", "failed"):
             return "fail"
+        if val in ("success", "ok", "passed"):
+            return "success"
         if val is not None:
             return val
 
@@ -286,6 +288,54 @@ def _get_from_event(event: EventLike, path: str) -> Any:
             _get_from_event_raw(event, "extra.protocol")
             or _get_from_event_raw(event, "network.protocol")
             or _get_from_event_raw(event, "service.name")
+        )
+        if val is None:
+            ds = _as_str(_get_from_event_raw(event, "event.dataset") or _get_from_event_raw(event, "source")).lower()
+            if "ssh" in ds or "secure" in ds:
+                return "ssh"
+            elif "dovecot" in ds or "mail" in ds:
+                return "imap_pop3"
+            elif "exim" in ds:
+                return "smtp"
+            elif "http" in ds or "nginx" in ds or "apache" in ds or "panel" in ds:
+                return "http"
+        return val
+
+    if path in ("extra.geo.country_code", "geo_country", "country_code", "country_iso"):
+        val = (
+            _get_from_event_raw(event, "extra.geo.country_code")
+            or _get_from_event_raw(event, "source.geo_country_iso_code")
+            or _get_from_event_raw(event, "source.geo.country_iso_code")
+            or _get_from_event_raw(event, "geo.country_code")
+        )
+        if val is not None:
+            return val
+
+    if path in ("extra.asn.number", "asn_number", "asn"):
+        val = (
+            _get_from_event_raw(event, "extra.asn.number")
+            or _get_from_event_raw(event, "source.as_number")
+            or _get_from_event_raw(event, "source.as.number")
+        )
+        if val is not None:
+            return val
+
+    if path in ("extra.vhost", "vhost", "domain"):
+        val = (
+            _get_from_event_raw(event, "extra.vhost")
+            or _get_from_event_raw(event, "customer.domain_name")
+            or _get_from_event_raw(event, "url.domain")
+            or _get_from_event_raw(event, "domain")
+        )
+        if val is not None:
+            return val
+
+    if path in ("extra.http.path", "url_path", "request_uri", "extra.request_uri", "url.path"):
+        val = (
+            _get_from_event_raw(event, "url.path")
+            or _get_from_event_raw(event, "url.original")
+            or _get_from_event_raw(event, "extra.http.path")
+            or _get_from_event_raw(event, "extra.request_uri")
         )
         if val is not None:
             return val
@@ -296,16 +346,6 @@ def _get_from_event(event: EventLike, path: str) -> Any:
             or _get_from_event_raw(event, "http_status")
             or _get_from_event_raw(event, "status_code")
             or _get_from_event_raw(event, "extra.status_code")
-        )
-        if val is not None:
-            return val
-
-    if path in ("url_path", "request_uri", "extra.request_uri", "url.path"):
-        val = (
-            _get_from_event_raw(event, "url.path")
-            or _get_from_event_raw(event, "url.original")
-            or _get_from_event_raw(event, "url_path")
-            or _get_from_event_raw(event, "extra.request_uri")
         )
         if val is not None:
             return val
