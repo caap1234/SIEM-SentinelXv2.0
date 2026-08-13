@@ -190,21 +190,18 @@ def _utc(dt: Optional[datetime]) -> Optional[datetime]:
     return dt.astimezone(timezone.utc)
 
 
-_SOURCE_ALIASES = {
-    "SAR_STATS": "SAR",
-    "SYSTEM_SECURE": "SSH_SECURE",
-    "SECURE": "SSH_SECURE",
-    "SYSTEM_MESSAGES": "SYSTEM",
-    "CPANEL_ACCESS": "PANEL_ACCESS",
-    "WHM_ACCESS": "PANEL_ACCESS",
-    "APACHE_ACCESS": "WEB_ACCESS",
-    "NGINX_ACCESS": "WEB_ACCESS",
-}
+from app.services.detection_core import (
+    DATASET_CATEGORIES,
+    DEBUG_MODE,
+    build_group_key as _build_group_key_core,
+    get_canonical_field as _get_canonical_field_core,
+    match_clause as _match_clause_core,
+    match_source as _match_source_core,
+    safe_eval_expr as _safe_eval_expr_core,
+)
 
 
-def _norm_source(v: Optional[str]) -> str:
-    s = (v or "").strip().upper()
-    return _SOURCE_ALIASES.get(s, s)
+from app.services.detection_core import norm_source as _norm_source
 
 
 def _norm_event_type(v: Optional[str]) -> str:
@@ -228,138 +225,11 @@ def _ip_subnet(ip: Optional[str], prefix: int = 24) -> Optional[str]:
 
 
 def _get_from_event_raw(event: EventLike, path: str) -> Any:
-    if not path:
-        return None
-    parts = path.split(".")
-    cur: Any = event
-    for p in parts:
-        if cur is None:
-            return None
-        if isinstance(cur, dict):
-            cur = cur.get(p)
-        elif hasattr(cur, p):
-            cur = getattr(cur, p)
-        else:
-            return None
-    return cur
+    return _get_canonical_field_core(event, path)
 
 
 def _get_from_event(event: EventLike, path: str) -> Any:
-    if not path:
-        return None
-
-    if path == "ip_subnet24":
-        return _ip_subnet(_as_str(_get_from_event(event, "ip_client")).strip() or None, 24)
-    if path == "ip_subnet16":
-        return _ip_subnet(_as_str(_get_from_event(event, "ip_client")).strip() or None, 16)
-
-    if path in ("ip_client", "ip"):
-        val = (
-            _get_from_event_raw(event, "ip_client")
-            or _get_from_event_raw(event, "source.ip")
-            or _get_from_event_raw(event, "client.ip")
-        )
-        if val is not None:
-            return val
-
-    if path in ("username", "user"):
-        val = (
-            _get_from_event_raw(event, "username")
-            or _get_from_event_raw(event, "user.name")
-        )
-        if val is not None:
-            return val
-
-    if path in ("extra.action", "action"):
-        val = (
-            _get_from_event_raw(event, "extra.action")
-            or _get_from_event_raw(event, "event.action")
-            or _get_from_event_raw(event, "event.outcome")
-        )
-        if val in ("failure", "fail", "failed"):
-            return "fail"
-        if val in ("success", "ok", "passed"):
-            return "success"
-        if val is not None:
-            return val
-
-    if path in ("extra.protocol", "protocol"):
-        val = (
-            _get_from_event_raw(event, "extra.protocol")
-            or _get_from_event_raw(event, "network.protocol")
-            or _get_from_event_raw(event, "service.name")
-        )
-        if val is None:
-            ds = _as_str(_get_from_event_raw(event, "event.dataset") or _get_from_event_raw(event, "source")).lower()
-            if "ssh" in ds or "secure" in ds:
-                return "ssh"
-            elif "dovecot" in ds or "mail" in ds:
-                return "imap_pop3"
-            elif "exim" in ds:
-                return "smtp"
-            elif "http" in ds or "nginx" in ds or "apache" in ds or "panel" in ds:
-                return "http"
-        return val
-
-    if path in ("extra.geo.country_code", "geo_country", "country_code", "country_iso"):
-        val = (
-            _get_from_event_raw(event, "extra.geo.country_code")
-            or _get_from_event_raw(event, "source.geo_country_iso_code")
-            or _get_from_event_raw(event, "source.geo.country_iso_code")
-            or _get_from_event_raw(event, "geo.country_code")
-        )
-        if val is not None:
-            return val
-
-    if path in ("extra.asn.number", "asn_number", "asn"):
-        val = (
-            _get_from_event_raw(event, "extra.asn.number")
-            or _get_from_event_raw(event, "source.as_number")
-            or _get_from_event_raw(event, "source.as.number")
-        )
-        if val is not None:
-            return val
-
-    if path in ("extra.vhost", "vhost", "domain"):
-        val = (
-            _get_from_event_raw(event, "extra.vhost")
-            or _get_from_event_raw(event, "customer.domain_name")
-            or _get_from_event_raw(event, "url.domain")
-            or _get_from_event_raw(event, "domain")
-        )
-        if val is not None:
-            return val
-
-    if path in ("extra.http.path", "url_path", "request_uri", "extra.request_uri", "url.path"):
-        val = (
-            _get_from_event_raw(event, "url.path")
-            or _get_from_event_raw(event, "url.original")
-            or _get_from_event_raw(event, "extra.http.path")
-            or _get_from_event_raw(event, "extra.request_uri")
-        )
-        if val is not None:
-            return val
-
-    if path in ("http_status", "status_code", "extra.status_code"):
-        val = (
-            _get_from_event_raw(event, "http.status_code")
-            or _get_from_event_raw(event, "http_status")
-            or _get_from_event_raw(event, "status_code")
-            or _get_from_event_raw(event, "extra.status_code")
-        )
-        if val is not None:
-            return val
-
-    if path in ("user_agent", "extra.user_agent", "user_agent.original"):
-        val = (
-            _get_from_event_raw(event, "user_agent.original")
-            or _get_from_event_raw(event, "user_agent")
-            or _get_from_event_raw(event, "extra.user_agent")
-        )
-        if val is not None:
-            return val
-
-    return _get_from_event_raw(event, path)
+    return _get_canonical_field_core(event, path)
 
 
 def _to_number(v: Any) -> Optional[float]:
@@ -423,119 +293,24 @@ def _resolve_let_block(event: EventLike, let_block: Any) -> Dict[str, Any]:
 
 
 def _match_rule(event: EventLike, rule: RuleV2) -> bool:
-    m = rule.match or {}
-    if not isinstance(m, dict) or not m:
-        return True
-
-    for field, cond in m.items():
-        val = _get_from_event(event, field)
-
-        if isinstance(cond, dict):
-            if "exists" in cond:
-                want = bool(cond["exists"])
-                if want != (val is not None):
-                    return False
-
-            if "eq" in cond:
-                if val != cond["eq"]:
-                    return False
-
-            if "contains" in cond:
-                needle = _as_str(cond["contains"])
-                hay = _as_str(val)
-                if needle not in hay:
-                    return False
-
-            if "contains_any" in cond or "contains_any_ref" in cond:
-                arr = cond.get("contains_any")
-                if "contains_any_ref" in cond:
-                    arr = _get_list(_as_str(cond.get("contains_any_ref")).strip())
-
-                if not isinstance(arr, list) or not arr:
-                    return False
-
-                hay = _as_str(val)
-                if not any((_as_str(x) != "") and (_as_str(x) in hay) for x in arr):
-                    return False
-
-            for key in (">=", ">", "<=", "<"):
-                if key in cond:
-                    try:
-                        fval = float(val)
-                        fcmp = float(cond[key])
-                    except Exception:
-                        return False
-                    if key == ">=" and not (fval >= fcmp):
-                        return False
-                    if key == ">" and not (fval > fcmp):
-                        return False
-                    if key == "<=" and not (fval <= fcmp):
-                        return False
-                    if key == "<" and not (fval < fcmp):
-                        return False
-
-            if "in" in cond or "in_ref" in cond:
-                arr = cond.get("in")
-                if "in_ref" in cond:
-                    arr = _get_list(_as_str(cond.get("in_ref")).strip())
-
-                if not isinstance(arr, list) or not arr:
-                    return False
-                if val not in arr:
-                    return False
-        else:
-            if val != cond:
-                return False
-
-    return True
+    return _match_clause_core(event, rule.match or {})
 
 
 def _build_group_key(event: EventLike, group_by: List[str]) -> str:
-    parts: List[str] = []
-    for f in group_by:
-        v = _get_from_event(event, f)
-        parts.append(str(v) if v is not None else "-")
-    return "|".join(parts)
+    return _build_group_key_core(event, group_by)
 
 
 def _extract_action_for_window(snap: Any) -> Optional[str]:
-    if isinstance(snap, dict):
-        outcome = _get_from_event(snap, "event.outcome") or _get_from_event(snap, "outcome")
-        if outcome:
-            o_str = _as_str(outcome).strip().lower()
-            if o_str in ("fail", "failed", "failure"):
-                return "fail"
-            if o_str in ("success", "ok", "passed"):
-                return "success"
-
-        extra = snap.get("extra", {}) if isinstance(snap.get("extra"), dict) else snap
-        if isinstance(extra, dict):
-            a = _as_str(extra.get("action")).strip().lower()
-            if a in ("fail", "failed", "failure"):
-                return "fail"
-            if a in ("success", "ok", "passed"):
-                return "success"
-
-            panel = extra.get("panel")
-            if isinstance(panel, dict):
-                st = _as_str(panel.get("status")).strip().lower()
-                if st in ("failed", "fail", "failure"):
-                    return "fail"
-                if st in ("ok", "success"):
-                    return "success"
-
+    o = _get_canonical_field_core(snap, "event.outcome")
+    if o == "failure":
+        return "fail"
+    if o == "success":
+        return "success"
     return None
 
 
 def _extract_path_for_window(event: EventLike) -> Optional[str]:
-    p = (
-        _get_from_event(event, "url.path")
-        or _get_from_event(event, "url.original")
-        or _get_from_event(event, "extra.http.path")
-        or _get_from_event(event, "extra.panel.path")
-        or _get_from_event(event, "extra.waf.uri")
-        or _get_from_event(event, "extra.request_uri")
-    )
+    p = _get_canonical_field_core(event, "url.path")
     if p is not None:
         s = _as_str(p).strip()
         return s or None

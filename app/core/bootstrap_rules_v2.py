@@ -21,11 +21,6 @@ def seed_default_rules_v2(db: Session) -> None:
     if not insp.has_table("rules_v2"):
         return
 
-    # Si ya hay reglas, no tocar (idempotente)
-    exists = db.query(RuleV2.id).first()
-    if exists:
-        return
-
     if not os.path.exists(DEFAULTS_PATH):
         return
 
@@ -35,13 +30,24 @@ def seed_default_rules_v2(db: Session) -> None:
     if not isinstance(items, list) or not items:
         return
 
+    existing_rules = {r.name: r for r in db.query(RuleV2).all()}
+
     for r in items:
-        # Seguridad mínima: evita insert de basura
         if not isinstance(r, dict):
             continue
-        if not r.get("name") or not r.get("source") or not r.get("event_type"):
+        name = r.get("name")
+        if not name or not r.get("source") or not r.get("event_type"):
             continue
 
-        db.add(RuleV2(**r))
+        if name in existing_rules:
+            obj = existing_rules[name]
+            obj.source = r.get("source")
+            obj.group_by = r.get("group_by")
+            obj.match = r.get("match")
+            obj.condition = r.get("condition")
+            obj.window_seconds = r.get("window_seconds")
+            obj.severity = r.get("severity")
+        else:
+            db.add(RuleV2(**r))
 
     db.commit()
