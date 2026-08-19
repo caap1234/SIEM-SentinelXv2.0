@@ -10,8 +10,14 @@ import sys
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-# Importar configuración de app si aplica
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__) + "/.."))
+# Asegurar importación de app desde cualquier directorio o contenedor
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+if "/app" not in sys.path and os.path.exists("/app"):
+    sys.path.insert(0, "/app")
+
 from app.core.config import settings
 
 def normalize_list_names():
