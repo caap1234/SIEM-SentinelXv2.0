@@ -17,6 +17,8 @@ from app.core.nats_config import (
     SUBJECT_RAW_HOSTING,
     SUBJECT_NORMALIZED_HOSTING,
     SUBJECT_DLQ_PARSING,
+    SUBJECT_LISTS_INVALIDATED,
+    SUBJECT_RULES_INVALIDATED,
     JETSTREAM_STREAMS,
 )
 from app.schemas.normalized_event import NormalizedEvent
@@ -231,6 +233,151 @@ class NatsService:
             except Exception as e:
                 logger.error("Error al publicar en DLQ: %s", e)
         return False
+
+    async def publish_list_invalidation(
+        self,
+        tenant_id: str = "global",
+        list_type: Optional[str] = None,
+        list_name: Optional[str] = None,
+        action: str = "update",
+        subject: str = SUBJECT_LISTS_INVALIDATED,
+    ) -> bool:
+        """
+        Publica un mensaje de invalidación reactiva de listas de seguridad en NATS.
+        """
+        payload_dict = {
+            "event": "lists.invalidated",
+            "tenant_id": tenant_id,
+            "list_type": list_type,
+            "list_name": list_name,
+            "action": action,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        payload = json.dumps(payload_dict, default=str).encode("utf-8")
+
+        if not self._connected or not self.js:
+            try:
+                await self.connect()
+            except Exception:
+                pass
+
+        if self.js:
+            try:
+                await self.js.publish(subject=subject, payload=payload, timeout=5)
+                logger.info("Notificación de invalidación de lista enviada a NATS (%s/%s - %s)", list_type, list_name, action)
+                return True
+            except Exception as e:
+                logger.warning("Error al publicar invalidación de lista en NATS: %s", e)
+        return False
+
+    async def publish_rule_invalidation(
+        self,
+        rule_id: Optional[int] = None,
+        action: str = "update",
+        subject: str = SUBJECT_RULES_INVALIDATED,
+    ) -> bool:
+        """
+        Publica un mensaje de invalidación reactiva de reglas/bindings en NATS.
+        """
+        payload_dict = {
+            "event": "rules.invalidated",
+            "rule_id": rule_id,
+            "action": action,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        payload = json.dumps(payload_dict, default=str).encode("utf-8")
+
+        if not self._connected or not self.js:
+            try:
+                await self.connect()
+            except Exception:
+                pass
+
+        if self.js:
+            try:
+                await self.js.publish(subject=subject, payload=payload, timeout=5)
+                logger.info("Notificación de invalidación de regla enviada a NATS (rule_id=%s - %s)", rule_id, action)
+                return True
+            except Exception as e:
+                logger.warning("Error al publicar invalidación de regla en NATS: %s", e)
+        return False
+
+    def notify_invalidation_sync(self, kind: str = "lists", **kwargs) -> None:
+        """
+        Invalida de forma segura la memoria local e intenta publicar a NATS desde código síncrono.
+        """
+        # 1. Invalidación local síncrona inmediata
+        try:
+            if kind == "lists":
+                from app.services.security_list_service import SecurityListService
+                SecurityListService.get_instance()._last_load = None
+            elif kind == "rules":
+                from app.services.rule_engine_v2 import RuleEngineV2
+                RuleEngineV2.get_instance().invalidate_cache()
+        except Exception as e:
+            logger.debug("Error en invalidación local síncrona (%s): %s", kind, e)
+
+        # 2. Publicación distribuida a NATS
+        if not HAS_NATS:
+            return
+
+        import asyncio
+        try:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                if kind == "lists":
+                    asyncio.create_task(self.publish_list_invalidation(**kwargs))
+                else:
+                    asyncio.create_task(self.publish_rule_invalidation(**kwargs))
+            else:
+                temp_loop = asyncio.new_event_loop()
+                try:
+                    if kind == "lists":
+                        temp_loop.run_until_complete(self.publish_list_invalidation(**kwargs))
+                    else:
+                        temp_loop.run_until_complete(self.publish_rule_invalidation(**kwargs))
+                finally:
+                    temp_loop.close()
+        except Exception as e:
+            logger.debug("Error al notificar invalidación síncrona en NATS: %s", e)
+
+    async def start_control_listener(self) -> None:
+        """
+        Suscribe NATS a los eventos de control para recarga en caliente de memoria local.
+        """
+        if not self._connected or not self.nc:
+            connected = await self.connect()
+            if not connected:
+                return
+
+        async def _lists_handler(msg):
+            try:
+                data = json.loads(msg.data.decode("utf-8"))
+                logger.info("Recibida invalidación NATS lists.invalidated: %s", data)
+                from app.services.security_list_service import SecurityListService
+                SecurityListService.get_instance()._last_load = None
+            except Exception as e:
+                logger.error("Error procesando mensaje NATS lists.invalidated: %s", e)
+
+        async def _rules_handler(msg):
+            try:
+                data = json.loads(msg.data.decode("utf-8"))
+                logger.info("Recibida invalidación NATS rules.invalidated: %s", data)
+                from app.services.rule_engine_v2 import RuleEngineV2
+                RuleEngineV2.get_instance().invalidate_cache()
+            except Exception as e:
+                logger.error("Error procesando mensaje NATS rules.invalidated: %s", e)
+
+        try:
+            await self.nc.subscribe(SUBJECT_LISTS_INVALIDATED, cb=_lists_handler)
+            await self.nc.subscribe(SUBJECT_RULES_INVALIDATED, cb=_rules_handler)
+            logger.info("Suscripción activa a eventos de control NATS (%s, %s)", SUBJECT_LISTS_INVALIDATED, SUBJECT_RULES_INVALIDATED)
+        except Exception as e:
+            logger.warning("No se pudo suscribir a eventos de control NATS: %s", e)
 
     async def close(self) -> None:
         if self.nc:

@@ -11,6 +11,36 @@ SEVERITY_MIN = 1
 SEVERITY_MAX = 30
 
 
+class RuleListBindingBase(BaseModel):
+    list_name: str = Field(..., max_length=128)
+    role: str = Field(..., max_length=32) # exclusion, detection, context
+    match_field: str = Field(..., max_length=128)
+    operator: str = Field(..., max_length=64)
+    action_config: Dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class RuleListBindingCreate(RuleListBindingBase):
+    pass
+
+
+class RuleListBindingUpdate(BaseModel):
+    list_name: Optional[str] = Field(default=None, max_length=128)
+    role: Optional[str] = Field(default=None, max_length=32)
+    match_field: Optional[str] = Field(default=None, max_length=128)
+    operator: Optional[str] = Field(default=None, max_length=64)
+    action_config: Optional[Dict[str, Any]] = None
+    enabled: Optional[bool] = None
+
+
+class RuleListBindingOut(RuleListBindingBase):
+    id: int
+    rule_id: int
+
+    class Config:
+        from_attributes = True
+
+
 class RuleV2Base(BaseModel):
     name: str = Field(..., max_length=255)
     description: Optional[str] = None
@@ -39,6 +69,8 @@ class RuleV2Base(BaseModel):
 
     tags: List[str] = Field(default_factory=list)
     version: int = Field(1, ge=1)
+    detection_bindings_operator: str = Field("AND", max_length=8)
+    legacy_list_policy: bool = False
 
 
 class RuleV2Create(RuleV2Base):
@@ -67,15 +99,19 @@ class RuleV2Update(BaseModel):
     cooldown_seconds: Optional[int] = Field(default=None, ge=0)
     evidence: Optional[Dict[str, Any]] = None
     emit: Optional[Dict[str, Any]] = None
+    detection_bindings_operator: Optional[str] = Field(default=None, max_length=8)
+    legacy_list_policy: Optional[bool] = None
 
     tags: Optional[List[str]] = None
     version: Optional[int] = Field(default=None, ge=1)
+    detection_bindings_operator: Optional[str] = Field(default=None, max_length=8)
 
 
 class RuleV2Out(RuleV2Base):
     id: int
     created_at: datetime
     updated_at: datetime
+    bindings: List[RuleListBindingOut] = Field(default_factory=list)
 
     class Config:
         from_attributes = True

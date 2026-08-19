@@ -537,6 +537,17 @@ class SecurityListService:
 
         # Invalidate cache
         self.refresh_cache(db)
+        try:
+            from app.services.nats_service import NatsService
+            NatsService.get_instance().notify_invalidation_sync(
+                kind="lists",
+                tenant_id=entry.tenant_id,
+                list_type=entry.list_type,
+                list_name=entry.list_name,
+                action="create",
+            )
+        except Exception:
+            pass
         return entry
 
     def update_entry(
@@ -583,6 +594,17 @@ class SecurityListService:
         db.commit()
 
         self.refresh_cache(db)
+        try:
+            from app.services.nats_service import NatsService
+            NatsService.get_instance().notify_invalidation_sync(
+                kind="lists",
+                tenant_id=entry.tenant_id,
+                list_type=entry.list_type,
+                list_name=entry.list_name,
+                action="update",
+            )
+        except Exception:
+            pass
         return entry
 
     def delete_entry(
@@ -599,6 +621,9 @@ class SecurityListService:
             return False
 
         old_dict = entry.to_dict()
+        t_id = entry.tenant_id
+        l_type = entry.list_type
+        l_name = entry.list_name
 
         audit = SecurityListAudit(
             entry_id=entry.id,
@@ -614,6 +639,17 @@ class SecurityListService:
         db.commit()
 
         self.refresh_cache(db)
+        try:
+            from app.services.nats_service import NatsService
+            NatsService.get_instance().notify_invalidation_sync(
+                kind="lists",
+                tenant_id=t_id,
+                list_type=l_type,
+                list_name=l_name,
+                action="delete",
+            )
+        except Exception:
+            pass
         return True
 
     def toggle_entry(

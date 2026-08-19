@@ -140,8 +140,7 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
                   focus:outline-none focus:ring-2 focus:ring-[#E67E22]/70 focus:border-transparent"
             placeholder="regla, texto, etc."
             data-filter-q
-            disabled
-            title="(Opcional) agrega búsqueda cuando tu API lo soporte"
+            title="Escribe una regla, IP, servidor o mensaje"
           />
         </div>
       </div>
@@ -408,14 +407,87 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
             </div>
           </div>
 
-          <div>
-            <p class="text-[#9CA3AF] uppercase tracking-wide text-[10px] mb-1">Mensaje</p>
-            <p class="text-[12px]" data-ev-msg>—</p>
-          </div>
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-start pt-3">
+            <!-- Eventos relacionados (Multi-eventos) -->
+            <div class="md:col-span-1 border border-[#E5E7EB] rounded-2xl p-4 bg-[#F9FAFB] space-y-3">
+              <p class="text-[#9CA3AF] uppercase tracking-wide text-[10px] font-semibold">Eventos de la ventana</p>
+              <div class="space-y-1.5 max-h-56 overflow-y-auto" data-ev-list>
+                <div class="text-[11px] text-[#6B7280]">Cargando eventos...</div>
+              </div>
+            </div>
 
-          <div>
-            <p class="text-[#9CA3AF] uppercase tracking-wide text-[10px] mb-1">Evidencia</p>
-            <pre class="text-[11px] font-mono bg-[#111827] text-[#E5E7EB] rounded-xl p-4 max-h-72 overflow-y-auto whitespace-pre-wrap" data-ev-raw>—</pre>
+            <!-- Contenedor de visualización segmentada -->
+            <div class="md:col-span-3 space-y-4">
+              <!-- Tabs para navegación -->
+              <div class="flex border-b border-[#E5E7EB] gap-4">
+                <button
+                  type="button"
+                  data-tab-btn="raw"
+                  class="pb-2 text-xs font-semibold border-b-2 border-[#E67E22] text-[#E67E22] transition"
+                >
+                  Log Original
+                </button>
+                <button
+                  type="button"
+                  data-tab-btn="json"
+                  class="pb-2 text-xs font-semibold border-b-2 border-transparent text-[#6B7280] hover:text-[#111827] transition"
+                >
+                  Evento Normalizado
+                </button>
+                <button
+                  type="button"
+                  data-tab-btn="metadata"
+                  class="pb-2 text-xs font-semibold border-b-2 border-transparent text-[#6B7280] hover:text-[#111827] transition"
+                >
+                  Metadata de Evidencia
+                </button>
+              </div>
+
+              <!-- Contenido de las pestañas -->
+              <div>
+                <!-- Tab: Log Original -->
+                <div data-tab-content="raw" class="space-y-2">
+                  <p class="text-[#9CA3AF] uppercase tracking-wide text-[9px]">Mensaje / Agrupación</p>
+                  <p class="text-[12px] font-medium font-mono bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-3" data-ev-msg>—</p>
+                  <div class="relative">
+                    <p class="text-[#9CA3AF] uppercase tracking-wide text-[9px] mb-1">Contenido de Log Crudo (log.original)</p>
+                    <pre class="text-[11px] font-mono bg-[#111827] text-[#E5E7EB] rounded-xl p-4 max-h-72 overflow-y-auto whitespace-pre-wrap" data-ev-raw>—</pre>
+                  </div>
+                </div>
+
+                <!-- Tab: Evento Normalizado -->
+                <div data-tab-content="json" class="hidden">
+                  <p class="text-[#9CA3AF] uppercase tracking-wide text-[9px] mb-1">JSON de correlación ECS</p>
+                  <pre class="text-[11px] font-mono bg-[#1F2937] text-[#F3F4F6] rounded-xl p-4 max-h-72 overflow-y-auto whitespace-pre-wrap" data-ev-json-normalized>—</pre>
+                </div>
+
+                <!-- Tab: Metadata de Evidencia -->
+                <div data-tab-content="metadata" class="hidden space-y-3">
+                  <div class="grid grid-cols-2 gap-4 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4">
+                    <div>
+                      <p class="text-[#9CA3AF] uppercase text-[9px] tracking-wide">S3 Key</p>
+                      <p class="text-[11px] font-mono select-all text-[#111827]" data-ev-s3-key>—</p>
+                    </div>
+                    <div>
+                      <p class="text-[#9CA3AF] uppercase text-[9px] tracking-wide">Firma SHA-256</p>
+                      <p class="text-[11px] font-mono select-all text-[#111827]" data-ev-sha256>—</p>
+                    </div>
+                    <div>
+                      <p class="text-[#9CA3AF] uppercase text-[9px] tracking-wide">Estado de Validación Forense</p>
+                      <div class="mt-1" data-ev-validation-badge>—</div>
+                    </div>
+                    <div>
+                      <p class="text-[#9CA3AF] uppercase text-[9px] tracking-wide">Origen del Log</p>
+                      <p class="text-[11px] text-[#111827]" data-ev-log-source>—</p>
+                    </div>
+                  </div>
+                  <div>
+                    <p class="text-[#9CA3AF] uppercase tracking-wide text-[9px] mb-1">Metadata Estructurada Completa</p>
+                    <pre class="text-[10px] font-mono bg-[#FAFAFB] border border-[#E5E7EB] text-[#374151] rounded-xl p-4 max-h-48 overflow-y-auto whitespace-pre-wrap" data-ev-meta-raw>—</pre>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -536,6 +608,7 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
     const fDays = $("[data-filter-days]");
     const fIncident = $("[data-filter-incident]");
     const fIp = $("[data-filter-ip]");
+    const fQ = $("[data-filter-q]");
     const btnApply = $("[data-apply]");
     const btnReset = $("[data-reset]");
 
@@ -558,6 +631,7 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
       days: 7,
       incident_id: "",
       ip: "",
+      q: "",
       page: 1,
       total: 0,
       pages: 1,
@@ -592,6 +666,7 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
       state.days = Number(p.get("days") || "7");
       state.incident_id = p.get("incident_id") || "";
       state.ip = p.get("ip") || "";
+      state.q = p.get("q") || "";
       state.page = Math.max(1, Number(p.get("page") || "1"));
 
       // Si viene focus_alert_id, lo guardamos en window para abrirlo luego
@@ -604,6 +679,7 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
       if (fDays) fDays.value = String(state.days || 7);
       if (fIncident) fIncident.value = state.incident_id || "";
       if (fIp) fIp.value = state.ip || "";
+      if (fQ) fQ.value = state.q || "";
     };
 
     const writeUrlState = () => {
@@ -624,6 +700,9 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
       if (state.ip) p.set("ip", state.ip);
       else p.delete("ip");
 
+      if (state.q) p.set("q", state.q);
+      else p.delete("q");
+
       // NO persistimos focus_alert_id en cambios normales
       p.delete("focus_alert_id");
 
@@ -641,6 +720,7 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
       if (state.server) params.set("server", state.server);
       if (state.incident_id) params.set("incident_id", state.incident_id);
       if (state.ip) params.set("ip", state.ip);
+      if (state.q) params.set("q", state.q);
 
       return params;
     };
@@ -1043,7 +1123,6 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
       currentModalOpensearchEventId = null;
       currentModalS3Key = null;
 
-
       modal.style.display = "grid";
       modal.classList.remove("hidden");
 
@@ -1063,6 +1142,51 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
       const saveBtn = modal.querySelector("[data-ev-save]");
       const statusMsg = modal.querySelector("[data-ev-status-msg]");
 
+      // Configuración de pestañas / Tabs
+      const tabButtons = modal.querySelectorAll("[data-tab-btn]");
+      const tabContents = modal.querySelectorAll("[data-tab-content]");
+
+      const switchTab = (activeTab) => {
+        tabButtons.forEach((btn) => {
+          const isTarget = btn.getAttribute("data-tab-btn") === activeTab;
+          btn.classList.toggle("border-[#E67E22]", isTarget);
+          btn.classList.toggle("text-[#E67E22]", isTarget);
+          btn.classList.toggle("border-transparent", !isTarget);
+          btn.classList.toggle("text-[#6B7280]", !isTarget);
+        });
+        tabContents.forEach((content) => {
+          const isTarget = content.getAttribute("data-tab-content") === activeTab;
+          content.classList.toggle("hidden", !isTarget);
+        });
+      };
+
+      tabButtons.forEach((btn) => {
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+        newBtn.addEventListener("click", () => {
+          const target = newBtn.getAttribute("data-tab-btn");
+          switchTab(target);
+        });
+      });
+
+      switchTab("raw"); // Pestaña por defecto
+
+      const evListContainer = modal.querySelector("[data-ev-list]");
+      const evJsonNormalized = modal.querySelector("[data-ev-json-normalized]");
+      const evS3Key = modal.querySelector("[data-ev-s3-key]");
+      const evSha256 = modal.querySelector("[data-ev-sha256]");
+      const evValidationBadge = modal.querySelector("[data-ev-validation-badge]");
+      const evLogSource = modal.querySelector("[data-ev-log-source]");
+      const evMetaRaw = modal.querySelector("[data-ev-meta-raw]");
+
+      if (evListContainer) evListContainer.innerHTML = `<div class="text-[11px] text-[#6B7280]">Cargando...</div>`;
+      if (evJsonNormalized) evJsonNormalized.textContent = "—";
+      if (evS3Key) evS3Key.textContent = "—";
+      if (evSha256) evSha256.textContent = "—";
+      if (evValidationBadge) evValidationBadge.innerHTML = "—";
+      if (evLogSource) evLogSource.textContent = "—";
+      if (evMetaRaw) evMetaRaw.textContent = "—";
+
       if (tsEl) tsEl.textContent = "Cargando...";
       if (serverEl) serverEl.textContent = "";
       if (ipEl) ipEl.textContent = "";
@@ -1080,7 +1204,6 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
         currentModalOpensearchEventId = d.opensearch_event_id || null;
         currentModalS3Key = d.s3_key || null;
 
-
         if (tsEl) tsEl.textContent = fmtLocal(d.timestamp_utc || d.timestamp_local || d.timestamp || "—");
         if (serverEl) serverEl.textContent = d.server || "—";
         if (ipEl) ipEl.textContent = d.ip || "—";
@@ -1095,14 +1218,57 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
 
         if (msgEl) msgEl.textContent = d.group_key || "—";
 
-        const rawText = String(d.raw_log_snippet || "—");
-        const MAX_LINES = 80;
+        let rawText = d.raw_log_snippet || "";
+        if (!d.s3_key && (!d.raw_log_snippet || d.raw_log_snippet.includes("[SentinelX S3 Forensics]"))) {
+          rawText = "Log original no disponible";
+        }
+        
+        if (rawEl) rawEl.textContent = rawText;
 
-        const lines = rawText.split(/\r?\n/);
-        const clipped = lines.slice(0, MAX_LINES).join("\n");
-        const suffix = lines.length > MAX_LINES ? "\n\n… (recortado)" : "";
+        if (evJsonNormalized) evJsonNormalized.textContent = JSON.stringify(d, null, 2);
+        if (evS3Key) evS3Key.textContent = d.s3_key || "No disponible";
+        if (evSha256) evSha256.textContent = d.sha256 || "No disponible";
+        if (evLogSource) evLogSource.textContent = d.source || "—";
+        if (evMetaRaw) evMetaRaw.textContent = JSON.stringify(d.evidence || {}, null, 2);
 
-        if (rawEl) rawEl.textContent = clipped + suffix;
+        if (evValidationBadge) {
+          if (d.s3_key) {
+            evValidationBadge.innerHTML = `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#FEF3C7] text-[#D97706]">Firma Pendiente de Validación</span>`;
+          } else {
+            evValidationBadge.innerHTML = `<span class="px-2 py-0.5 rounded-full text-[10px] bg-gray-100 text-gray-500">Sin Evidencia S3</span>`;
+          }
+        }
+
+        if (evListContainer) {
+          evListContainer.innerHTML = "";
+          const ids = Array.isArray(d.event_ids) ? d.event_ids : [];
+          if (ids.length === 0) {
+            evListContainer.innerHTML = `<div class="text-[11px] text-[#9CA3AF] italic">Un único evento principal</div>`;
+          } else {
+            ids.forEach((id, idx) => {
+              const btn = document.createElement("button");
+              btn.type = "button";
+              btn.className = "w-full text-left px-3 py-1.5 rounded-lg border border-[#E5E7EB] bg-white hover:bg-[#F3F4F6] text-[11px] text-[#4B5563] truncate block transition";
+              btn.textContent = `Evento #${idx + 1} (${id.slice(0, 8)}...)`;
+              btn.title = id;
+              btn.addEventListener("click", async () => {
+                if (rawEl) rawEl.textContent = "Cargando log del evento...";
+                switchTab("raw");
+                try {
+                  const evData = await apiGet(`/alerts/${encodeURIComponent(eventId)}/evidence`);
+                  if (evData.is_synthetic || !evData.raw_evidence) {
+                    if (rawEl) rawEl.textContent = "Log original no disponible";
+                  } else {
+                    if (rawEl) rawEl.textContent = evData.raw_evidence;
+                  }
+                } catch {
+                  if (rawEl) rawEl.textContent = "Log original no disponible";
+                }
+              });
+              evListContainer.appendChild(btn);
+            });
+          }
+        }
 
         if (statusSel instanceof HTMLSelectElement) statusSel.value = currentStatus;
         if (dispSel instanceof HTMLSelectElement) dispSel.value = String(d.disposition || "");
@@ -1182,18 +1348,41 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
       if (!modal || !currentModalEventId) return;
       const rawEl = modal.querySelector("[data-ev-raw]");
       const statusMsg = modal.querySelector("[data-ev-status-msg]");
+      const evValidationBadge = modal.querySelector("[data-ev-validation-badge]");
+      const evS3Key = modal.querySelector("[data-ev-s3-key]");
+      const evSha256 = modal.querySelector("[data-ev-sha256]");
 
       if (statusMsg) statusMsg.textContent = "Obteniendo evidencia desde MinIO S3...";
 
       try {
         const ev = await apiGet(`/alerts/${encodeURIComponent(currentModalEventId)}/evidence`);
-        if (rawEl) {
-          rawEl.textContent = `[MINIO S3 EVIDENCE RETRIEVED & SHA-256 VERIFIED]\nKey: ${ev.s3_key}\nSHA-256: ${ev.sha256}\nForense Validado: ${ev.integrity_verified ? 'SÍ (Inmutable)' : 'NO'}\n\nRAW CONTENT:\n${ev.raw_evidence}`;
+        
+        let content = ev.raw_evidence || "";
+        if (ev.is_synthetic || !ev.raw_evidence) {
+          content = "Log original no disponible";
         }
-        if (statusMsg) statusMsg.textContent = "Evidencia S3 verificada con éxito.";
+        
+        if (rawEl) rawEl.textContent = content;
+
+        if (evS3Key) evS3Key.textContent = ev.s3_key || "No disponible";
+        if (evSha256) evSha256.textContent = ev.sha256 || "No disponible";
+
+        if (evValidationBadge) {
+          if (ev.integrity_verified) {
+            evValidationBadge.innerHTML = `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#DCFCE7] text-[#166534]">Firma SHA-256 Válida (Forense Inmutable)</span>`;
+          } else {
+            evValidationBadge.innerHTML = `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700">Firma SHA-256 Inválida</span>`;
+          }
+        }
+
+        if (statusMsg) statusMsg.textContent = ev.integrity_verified ? "Evidencia S3 verificada con éxito." : "Error: Firma SHA-256 no verificada.";
       } catch (err) {
         console.error("Error al descargar evidencia S3:", err);
+        if (rawEl) rawEl.textContent = "Log original no disponible";
         if (statusMsg) statusMsg.textContent = "No se pudo recuperar la evidencia S3.";
+        if (evValidationBadge) {
+          evValidationBadge.innerHTML = `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700">Error al Conectar</span>`;
+        }
       }
     };
 
@@ -1231,6 +1420,7 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
       state.days = Number(fDays?.value || "7");
       state.incident_id = String(fIncident?.value || "").trim();
       state.ip = String(fIp?.value || "").trim();
+      state.q = String(fQ?.value || "").trim();
       state.page = 1;
 
       clearSelection();
@@ -1240,7 +1430,7 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
     });
 
     btnReset?.addEventListener("click", () => {
-      state = { ...state, server: "", severity: "all", status: "open", days: 7, incident_id: "", ip: "", page: 1 };
+      state = { ...state, server: "", severity: "all", status: "open", days: 7, incident_id: "", ip: "", q: "", page: 1 };
 
       if (serverLabel) serverLabel.textContent = "Todos";
       if (serverSelect instanceof HTMLSelectElement) serverSelect.value = "";

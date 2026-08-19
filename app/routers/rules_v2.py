@@ -116,6 +116,7 @@ def create_rule(
         emit=payload.emit or {},
         tags=payload.tags or [],
         version=payload.version,
+        detection_bindings_operator=payload.detection_bindings_operator or "OR",
     )
 
     db.add(r)
@@ -230,3 +231,111 @@ def reprocess(
         server=payload.server,
         max_events=payload.max_events,
     )
+
+
+# -------------------------
+# Bindings Routes (ADMIN ONLY)
+# -------------------------
+from app.models.rule_list_binding import RuleListBinding
+from app.schemas.rules_v2 import RuleListBindingCreate, RuleListBindingUpdate, RuleListBindingOut
+
+@router.get("/{rule_id}/bindings", response_model=List[RuleListBindingOut])
+def get_rule_bindings(
+    rule_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    r = db.query(RuleV2).filter(RuleV2.id == rule_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return db.query(RuleListBinding).filter(RuleListBinding.rule_id == rule_id).all()
+
+
+@router.post("/{rule_id}/bindings", response_model=RuleListBindingOut, status_code=status.HTTP_201_CREATED)
+def create_rule_binding(
+    rule_id: int,
+    payload: RuleListBindingCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    r = db.query(RuleV2).filter(RuleV2.id == rule_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Rule not found")
+
+    # Validaciones defensivas de action_config
+    cfg = payload.action_config or {}
+    if payload.role == "context":
+        # 1. adjust_severity
+        if "adjust_severity" in cfg:
+            try:
+                offset = int(cfg["adjust_severity"])
+            except ValueError:
+                raise HTTPException(status_code=400, detail="severity_offset must be a numeric integer")
+
+    b = RuleListBinding(
+        rule_id=rule_id,
+        list_name=payload.list_name.strip(),
+        role=payload.role.strip().lower(),
+        match_field=payload.match_field.strip(),
+        operator=payload.operator.strip(),
+        action_config=cfg,
+        enabled=payload.enabled,
+    )
+    db.add(b)
+    db.commit()
+    db.refresh(b)
+    invalidate_rule_engine_cache()
+    return b
+
+
+@router.patch("/{rule_id}/bindings/{binding_id}", response_model=RuleListBindingOut)
+def update_rule_binding(
+    rule_id: int,
+    binding_id: int,
+    payload: RuleListBindingUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    b = db.query(RuleListBinding).filter(RuleListBinding.id == binding_id, RuleListBinding.rule_id == rule_id).first()
+    if not b:
+        raise HTTPException(status_code=404, detail="Binding not found")
+
+    data = payload.model_dump(exclude_unset=True)
+    if "role" in data:
+        data["role"] = data["role"].strip().lower()
+
+    if "action_config" in data and data["action_config"] is not None:
+        cfg = data["action_config"]
+        role_type = data.get("role") or b.role
+        if role_type == "context":
+            if "adjust_severity" in cfg:
+                try:
+                    offset = int(cfg["adjust_severity"])
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="severity_offset must be a numeric integer")
+
+    for k, v in data.items():
+        setattr(b, k, v)
+
+    db.add(b)
+    db.commit()
+    db.refresh(b)
+    invalidate_rule_engine_cache()
+    return b
+
+
+@router.delete("/{rule_id}/bindings/{binding_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_rule_binding(
+    rule_id: int,
+    binding_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    b = db.query(RuleListBinding).filter(RuleListBinding.id == binding_id, RuleListBinding.rule_id == rule_id).first()
+    if not b:
+        raise HTTPException(status_code=404, detail="Binding not found")
+
+    db.delete(b)
+    db.commit()
+    invalidate_rule_engine_cache()
+    return None

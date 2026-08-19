@@ -17,6 +17,7 @@ STREAM_RAW = "SENTINELX_INGEST_RAW"
 STREAM_NORMALIZED = "SENTINELX_EVENTS_NORMALIZED"
 STREAM_DLQ = "SENTINELX_DLQ"
 STREAM_METRICS = "SENTINELX_METRICS"
+STREAM_CONTROL = "SENTINELX_CONTROL"
 
 # Subjects (Tópicos)
 SUBJECT_RAW_HOSTING = "sentinelx.ingest.raw.hosting"
@@ -24,6 +25,8 @@ SUBJECT_NORMALIZED_HOSTING = "sentinelx.events.normalized.hosting"
 SUBJECT_DLQ_PARSING = "sentinelx.dlq.parsing"
 SUBJECT_DLQ_INDEXING = "sentinelx.dlq.indexing"
 SUBJECT_METRICS_SYSTEM = "sentinelx.metrics.system"
+SUBJECT_LISTS_INVALIDATED = "sentinelx.control.lists_invalidated"
+SUBJECT_RULES_INVALIDATED = "sentinelx.control.rules_invalidated"
 
 # Consumidores Durables
 CONSUMER_PARSER = "parser_worker_group"
@@ -57,6 +60,12 @@ JETSTREAM_STREAMS: List[Dict[str, Any]] = [
         "name": STREAM_METRICS,
         "subjects": ["sentinelx.metrics.*"],
         "max_age": 86400 * 3,  # 3 días para métricas livianas
+        "storage": "file",
+    },
+    {
+        "name": STREAM_CONTROL,
+        "subjects": ["sentinelx.control.*"],
+        "max_age": 86400 * 1,  # 1 día para mensajes de control e invalidaciones en vivo
         "storage": "file",
     },
 ]

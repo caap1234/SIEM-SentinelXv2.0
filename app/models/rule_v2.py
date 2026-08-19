@@ -34,7 +34,14 @@ class RuleV2(Base):
     tags = Column(ARRAY(Text), nullable=False, server_default="{}")
     version = Column(Integer, nullable=False, server_default="1")
 
+    # Operador lógico global para bindings de tipo 'detection' (AND | OR)
+    detection_bindings_operator = Column(String(8), nullable=False, server_default="AND")
+
+    # Política legacy de confianza implícita (false por defecto - CERO comportamiento implícito en V2)
+    legacy_list_policy = Column(Boolean, nullable=False, default=False, server_default="false")
+
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     states = relationship("RuleStateV2", back_populates="rule", passive_deletes=True)
+    bindings = relationship("RuleListBinding", back_populates="rule", cascade="all, delete-orphan", passive_deletes=True)

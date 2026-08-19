@@ -23,8 +23,16 @@ def invalidate_rule_engine_cache(*, hard: bool = False) -> None:
     """
     global _ENGINE, _LAST_RELOAD_AT
     _LAST_RELOAD_AT = None
+    engine = RuleEngineV2.get_instance()
+    engine.invalidate_cache()
     if hard:
         _ENGINE = None
+
+    try:
+        from app.services.nats_service import NatsService
+        NatsService.get_instance().notify_invalidation_sync(kind="rules")
+    except Exception:
+        pass
 
 
 def get_rule_engine() -> RuleEngineV2:
@@ -37,7 +45,7 @@ def get_rule_engine() -> RuleEngineV2:
     global _ENGINE, _LAST_RELOAD_AT
 
     if _ENGINE is None:
-        _ENGINE = RuleEngineV2()
+        _ENGINE = RuleEngineV2.get_instance()
 
     ttl_seconds = int(os.getenv("RULES_RELOAD_SECONDS", "30").strip() or "30")
     now = datetime.now(timezone.utc)

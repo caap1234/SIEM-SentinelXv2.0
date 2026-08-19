@@ -91,22 +91,14 @@ def _entity_like_conditions(
     server: Optional[str],
 ) -> List[Any]:
     """
-    Filtro robusto por entidad textual (user/domain/etc).
-
-    - Preferimos group_key porque es el "join key" natural:
-        svdb057|contacto@tecnogse.com
-      entonces:
-        group_key ILIKE '%|contacto@tecnogse.com'
-      y si hay server:
-        group_key = 'svdb057|contacto@tecnogse.com' (match exacto)
-        o fallback ILIKE '%|contacto@...'
-    - Como fallback, buscamos también en evidence/metrics (por si alguna regla no mete la entidad en group_key).
+    Filtro robusto por entidad textual (user/domain/etc), regla e IP.
     """
     needle = (q or "").strip()
     if not needle:
         return []
 
     like_tail = f"%|{needle}%"
+    needle_like = f"%{needle}%"
     conds: List[Any] = []
 
     # exact match si hay server (mejor precisión)
@@ -114,11 +106,12 @@ def _entity_like_conditions(
         exact = f"{server.strip()}|{needle}"
         conds.append(Alert.group_key == exact)
 
-    # contains tail
+    # contains tail o rule_name o rule_id
     conds.append(Alert.group_key.ilike(like_tail))
+    conds.append(Alert.rule_name.ilike(needle_like))
+    conds.append(sa.cast(Alert.rule_id, sa.Text).ilike(needle_like))
 
     # fallback: JSON text search (menos exacto, pero rescata reglas raras)
-    needle_like = f"%{needle}%"
     conds.append(sa.cast(Alert.evidence, sa.Text).ilike(needle_like))
     conds.append(sa.cast(Alert.metrics, sa.Text).ilike(needle_like))
 
@@ -273,6 +266,8 @@ class AlertDetailResponse(BaseModel):
     ip: Optional[str] = None
     opensearch_event_id: Optional[str] = None
     s3_key: Optional[str] = None
+    sha256: Optional[str] = None
+    event_ids: List[str] = Field(default_factory=list)
 
     raw_log_snippet: str = "—"
 
@@ -401,6 +396,15 @@ def get_alert(
 
     sev = int(a.severity or 0)
 
+    ev_dict = a.evidence if isinstance(a.evidence, dict) else {}
+    event_ids = ev_dict.get("event_ids") or []
+    if not isinstance(event_ids, list):
+        event_ids = [str(event_ids)] if event_ids else []
+    else:
+        event_ids = [str(x) for x in event_ids]
+
+    sha256_hash = ev_dict.get("sha256") or ev_dict.get("hash") or None
+
     return AlertDetailResponse(
         id=int(a.id),
         timestamp_utc=a.triggered_at.astimezone(timezone.utc).isoformat(),
@@ -421,6 +425,8 @@ def get_alert(
         ip=ip_guess,
         opensearch_event_id=getattr(a, "opensearch_event_id", None),
         s3_key=getattr(a, "s3_key", None),
+        sha256=sha256_hash,
+        event_ids=event_ids,
         raw_log_snippet=str(raw)[:6000],
     )
 
@@ -558,7 +564,11 @@ def get_alert_evidence(
     sha256_hash = evidence_data.get("sha256") or evidence_data.get("hash")
 
     s3_verified = False
-    raw_content = evidence_data.get("raw") or evidence_data.get("sample") or ""
+    raw_content = evidence_data.get("raw") or evidence_data.get("sample") or None
+
+    is_synthetic = False
+    if not raw_content and not s3_key:
+        is_synthetic = True
 
     if s3_key:
         try:
@@ -571,10 +581,11 @@ def get_alert_evidence(
 
     return {
         "alert_id": alert_id,
-        "s3_key": s3_key or f"sentinelx-evidence/default/2026/08/10/hosting/{alert_id}.raw.gz",
-        "sha256": sha256_hash or "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "integrity_verified": s3_verified or bool(raw_content),
-        "raw_evidence": raw_content or f"[SentinelX S3 Forensics] Raw log sample for Alert #{alert_id}\nRule: {alert.rule_name}\nServer: {alert.server}\nStatus: {alert.status}",
+        "s3_key": s3_key or None,
+        "sha256": sha256_hash or None,
+        "integrity_verified": s3_verified,
+        "is_synthetic": is_synthetic,
+        "raw_evidence": raw_content,
         "evidence_metadata": evidence_data,
     }
 

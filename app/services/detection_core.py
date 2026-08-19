@@ -169,14 +169,26 @@ def get_canonical_field(event: Any, path: str) -> Any:
                 return "http"
         return s
 
-    if path == "url.path":
-        return get_raw_field(event, "url.original") or get_raw_field(event, "extra.http.path") or get_raw_field(event, "extra.request_uri")
+    if path in ("url.path", "url.original"):
+        return (
+            get_raw_field(event, "url.path")
+            or get_raw_field(event, "url.original")
+            or get_raw_field(event, "extra.url.path")
+            or get_raw_field(event, "extra.url.original")
+            or get_raw_field(event, "extra.http.path")
+            or get_raw_field(event, "extra.request_uri")
+        )
 
     if path == "http.status_code":
         return get_raw_field(event, "http_status") or get_raw_field(event, "status_code") or get_raw_field(event, "extra.status_code")
 
-    if path == "source.geo_country_iso_code":
-        return get_raw_field(event, "extra.geo.country_code") or get_raw_field(event, "geo_country") or get_raw_field(event, "country_code")
+    if path in ("source.geo_country_iso_code", "geo.country_iso_code", "geo.country_name"):
+        return (
+            get_raw_field(event, "extra.geo.country_code")
+            or get_raw_field(event, "extra.geo.country_name")
+            or get_raw_field(event, "geo_country")
+            or get_raw_field(event, "country_code")
+        )
 
     if path == "source.as_number":
         return get_raw_field(event, "extra.asn.number") or get_raw_field(event, "asn_number")
@@ -208,7 +220,7 @@ def _get_legacy_field_fallback(event: Any, path: str) -> Any:
         return get_canonical_field(event, "url.path")
     if path == "http_status":
         return get_canonical_field(event, "http.status_code")
-    if path == "extra.geo.country_code":
+    if path in ("extra.geo.country_code", "extra.geo.country_name", "geo.country_name"):
         return get_canonical_field(event, "source.geo_country_iso_code")
     if path == "extra.asn.number":
         return get_canonical_field(event, "source.as_number")
@@ -248,7 +260,7 @@ def match_source(rule_source: str, event_dataset: str) -> bool:
     return False
 
 
-def match_clause(event: Any, match_dict: Dict[str, Any]) -> bool:
+def match_clause(event: Any, match_dict: Dict[str, Any], tenant_id: str = "global", db: Optional[Session] = None) -> bool:
     if not isinstance(match_dict, dict) or not match_dict:
         return True
 
@@ -291,6 +303,35 @@ def match_clause(event: Any, match_dict: Dict[str, Any]) -> bool:
             if "not_in" in cond:
                 arr = cond.get("not_in")
                 if isinstance(arr, list) and val in arr:
+                    return False
+
+            # Operadores dinámicos ligados a listas (Security Lists)
+            from app.services.security_list_service import SecurityListService
+            from app.services.security_list_service import _ip_in_cidrs
+
+            if "in_ref" in cond:
+                list_name = cond.get("in_ref")
+                arr = SecurityListService.get_instance().get_list_by_name(list_name, tenant_id=tenant_id, db=db)
+                if _as_str(val) not in arr:
+                    return False
+
+            if "not_in_ref" in cond:
+                list_name = cond.get("not_in_ref")
+                arr = SecurityListService.get_instance().get_list_by_name(list_name, tenant_id=tenant_id, db=db)
+                if _as_str(val) in arr:
+                    return False
+
+            if "contains_any_ref" in cond:
+                list_name = cond.get("contains_any_ref")
+                arr = SecurityListService.get_instance().get_list_by_name(list_name, tenant_id=tenant_id, db=db)
+                hay = _as_str(val)
+                if not any((_as_str(x) != "") and (_as_str(x) in hay) for x in arr):
+                    return False
+
+            if "cidr_match" in cond:
+                list_name = cond.get("cidr_match")
+                arr = SecurityListService.get_instance().get_list_by_name(list_name, tenant_id=tenant_id, db=db)
+                if not _ip_in_cidrs(_as_str(val), arr):
                     return False
 
             for cmp_op in (">=", ">", "<=", "<"):

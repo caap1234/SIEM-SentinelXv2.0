@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 import ipaddress
 import json
+import logging
 import os
 from collections import defaultdict, deque
 from dataclasses import dataclass
@@ -18,6 +19,8 @@ from app.models.alert import Alert
 from app.models.event import Event
 from app.models.rule_state_v2 import RuleStateV2
 from app.models.rule_v2 import RuleV2
+
+logger = logging.getLogger("sentinelx.rule_engine_v2")
 
 
 EventLike = Union[Event, Dict[str, Any]]
@@ -108,16 +111,26 @@ def _event_snapshot(event: Any) -> Dict[str, Any]:
         return event
     extra = getattr(event, "extra", None)
     extra_dict = extra if isinstance(extra, dict) else {}
-    return {
+    snap = {
         "id": getattr(event, "id", None),
         "raw_id": getattr(event, "raw_id", None),
         "source": getattr(event, "source", None),
         "server": getattr(event, "server", None),
+        "service": getattr(event, "service", None),
+        "message": getattr(event, "message", None),
         "ip_client": getattr(event, "ip_client", None),
         "username": getattr(event, "username", None),
         "timestamp_utc": getattr(event, "timestamp_utc", None),
         "extra": extra_dict,
     }
+    # Combinar propiedades de extra en primer nivel para compatibilidad de match
+    for k, v in extra_dict.items():
+        snap[f"extra.{k}"] = v
+    # Copiar url.original, url.path si existen en extra
+    if isinstance(extra_dict.get("url"), dict):
+        snap["url.original"] = extra_dict["url"].get("original")
+        snap["url.path"] = extra_dict["url"].get("path") or extra_dict["url"].get("original")
+    return snap
 
 
 def _is_trusted_event_for_rule(
@@ -292,8 +305,8 @@ def _resolve_let_block(event: EventLike, let_block: Any) -> Dict[str, Any]:
     return out
 
 
-def _match_rule(event: EventLike, rule: RuleV2) -> bool:
-    return _match_clause_core(event, rule.match or {})
+def _match_rule(event: EventLike, rule: RuleV2, tenant_id: str = "global", db: Optional[Session] = None) -> bool:
+    return _match_clause_core(event, rule.match or {}, tenant_id=tenant_id, db=db)
 
 
 def _build_group_key(event: EventLike, group_by: List[str]) -> str:
@@ -333,7 +346,8 @@ def _get_or_create_rule_state_locked(db: Session, *, rule_id: int, group_key: st
         db.add(st_new)
         db.flush()
         return st_new
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Error al crear RuleStateV2 (rule_id={rule_id}, group_key={group_key}): {e}")
         db.rollback()
 
     st2 = (
@@ -364,6 +378,8 @@ class _BufItem:
 
 
 class RuleEngineV2:
+    _instance: Optional[RuleEngineV2] = None
+
     def __init__(self) -> None:
         self._index: Dict[Tuple[str, str], List[RuleV2]] = {}
         self._windows: Dict[Tuple[int, str], Deque[_BufItem]] = defaultdict(deque)
@@ -372,10 +388,23 @@ class RuleEngineV2:
         self._last_reload_at: Optional[datetime] = None
         self._reload_ttl_seconds: int = int(os.getenv("RULE_ENGINE_RELOAD_TTL_SECONDS", "60").strip() or "60")
 
+    @classmethod
+    def get_instance(cls) -> RuleEngineV2:
+        if cls._instance is None:
+            cls._instance = RuleEngineV2()
+        return cls._instance
+
+    def invalidate_cache(self) -> None:
+        """Fuerza la invalidación en caliente de las reglas indexadas."""
+        self._last_reload_at = None
+        logger.info("Caché de RuleEngineV2 invalidada en caliente.")
+
     def reload_rules(self, db: Session) -> None:
+        from sqlalchemy.orm import joinedload
         rules = (
             db.query(RuleV2)
             .filter(RuleV2.enabled.is_(True))
+            .options(joinedload(RuleV2.bindings))
             .all()
         )
     
@@ -383,6 +412,11 @@ class RuleEngineV2:
         # y evitar DetachedInstor en ciclos posteriores
         for r in rules:
             try:
+                for b in getattr(r, "bindings", []):
+                    try:
+                        db.expunge(b)
+                    except Exception:
+                        pass
                 db.expunge(r)
             except Exception:
                 pass
@@ -467,249 +501,364 @@ class RuleEngineV2:
         ev_subnet24 = _ip_subnet(ev_ip, 24)
 
         for rule in candidates:
-            rule_emit = rule.emit or {}
-            ignore_trust = bool(rule_emit.get("ignore_trust"))
-            rule_code = str(rule_emit.get("code") or rule.name or "")
-            tenant_id = str(_get_from_event(snap, "tenant_id") or _get_from_event(snap, "extra.tenant_id") or "global")
+            try:
+                rule_emit = rule.emit or {}
+                ignore_trust = bool(rule_emit.get("ignore_trust"))
+                rule_code = str(rule_emit.get("code") or rule.name or "")
+                tenant_id = str(_get_from_event(snap, "tenant_id") or _get_from_event(snap, "extra.tenant_id") or "global")
 
-            is_trusted_eff, ignore_reason, val_matched = _is_trusted_event_for_rule(
-                event=snap,
-                geo_country=geo_country,
-                rule_emit=rule_emit,
-                rule_code=rule_code,
-                tenant_id=tenant_id,
-                db=db,
-            )
-            if is_trusted_eff and not ignore_trust:
-                # Trazabilidad de evento ignorado
-                SecurityListService.get_instance().log_ignored_event(
-                    tenant_id=tenant_id,
-                    ignore_reason=ignore_reason or "trusted_event",
-                    value_matched=val_matched or ev_ip or "unknown",
-                    rule_code=rule_code,
-                    event_id=str(_get_from_event(snap, "id")),
-                    source=src,
-                    server=ev_server,
-                    ip_client=ev_ip,
-                    db=db,
+                # ------------------------------------------------------------
+                # A. EVALUACIÓN DE EXCLUSIONES EXPLÍCITAS (Fase 2 - role=exclusion)
+                # Semántica: OR implícito. Si cualquiera coincide, se excluye el evento.
+                # ------------------------------------------------------------
+                is_trusted_eff = False
+                excluded = False
+                exclusion_reason = None
+                exclusion_val = None
+
+                active_bindings = [b for b in getattr(rule, "bindings", []) if b.enabled]
+                exclusion_bindings = [b for b in active_bindings if b.role == "exclusion"]
+
+                for b in exclusion_bindings:
+                    # Armamos clausula de coincidencia dinámica para el binding
+                    cond_dict = {
+                        b.match_field: {b.operator: b.list_name}
+                    }
+                    if _match_clause_core(snap, cond_dict, tenant_id=tenant_id, db=db):
+                        excluded = True
+                        exclusion_reason = f"exclusion_binding:{b.list_name}"
+                        exclusion_val = _as_str(_get_from_event(snap, b.match_field))
+                        break
+
+                if excluded and not ignore_trust:
+                    SecurityListService.get_instance().log_ignored_event(
+                        tenant_id=tenant_id,
+                        ignore_reason=exclusion_reason,
+                        value_matched=exclusion_val or ev_ip or "unknown",
+                        rule_code=rule_code,
+                        event_id=str(_get_from_event(snap, "id")),
+                        source=src,
+                        server=ev_server,
+                        ip_client=ev_ip,
+                        db=db,
+                    )
+                    continue
+
+                is_legacy_policy = getattr(rule, "legacy_list_policy", False) is True
+
+                # ------------------------------------------------------------
+                # B. EVALUACIÓN DE CONFIANZA IMPLÍCITA LEGACY (Solo si legacy_list_policy=True)
+                # Cero comportamiento implícito para reglas V2 normales (legacy_list_policy=False)
+                # ------------------------------------------------------------
+                if is_legacy_policy:
+                    is_trusted_eff, ignore_reason, val_matched = _is_trusted_event_for_rule(
+                        event=snap,
+                        geo_country=geo_country,
+                        rule_emit=rule_emit,
+                        rule_code=rule_code,
+                        tenant_id=tenant_id,
+                        db=db,
+                    )
+                    if is_trusted_eff and not ignore_trust:
+                        # Trazabilidad de evento ignorado
+                        SecurityListService.get_instance().log_ignored_event(
+                            tenant_id=tenant_id,
+                            ignore_reason=ignore_reason or "trusted_event",
+                            value_matched=val_matched or ev_ip or "unknown",
+                            rule_code=rule_code,
+                            event_id=str(_get_from_event(snap, "id")),
+                            source=src,
+                            server=ev_server,
+                            ip_client=ev_ip,
+                            db=db,
+                        )
+                        continue
+
+                # ------------------------------------------------------------
+                # C. EVALUACIÓN DE BASE RULE MATCH
+                # ------------------------------------------------------------
+                if not _match_rule(snap, rule, tenant_id=tenant_id, db=db):
+                    continue
+
+                # ------------------------------------------------------------
+                # D. EVALUACIÓN DE DETECCIONES EXPLÍCITAS (Fase 2 - role=detection)
+                # Semántica: Se combinan según detection_bindings_operator de la regla (AND por defecto | OR).
+                # ------------------------------------------------------------
+                detection_bindings = [b for b in active_bindings if b.role == "detection"]
+                if detection_bindings:
+                    det_op = str(getattr(rule, "detection_bindings_operator", "AND")).upper().strip()
+                    match_results = []
+
+                    for b in detection_bindings:
+                        cond_dict = {
+                            b.match_field: {b.operator: b.list_name}
+                        }
+                        res = _match_clause_core(snap, cond_dict, tenant_id=tenant_id, db=db)
+                        match_results.append(res)
+
+                    if det_op == "AND":
+                        # Coincidir con TODOS los bindings de detección
+                        if not all(match_results):
+                            continue
+                    else:
+                        # Coincidir con AL MENOS UNO de los bindings de detección (OR)
+                        if not any(match_results):
+                            continue
+
+                gb = list(rule.group_by or [])
+                if not gb:
+                    gb = ["server"]
+                group_key = _build_group_key(snap, gb)
+
+                win_key = (int(rule.id), group_key)
+                dq = self._windows[win_key]
+
+                dq.append(
+                    _BufItem(
+                        ts=ev_ts,
+                        event_id=_get_from_event(snap, "id"),
+                        raw_id=_get_from_event(snap, "raw_id"),
+                        server=ev_server,
+                        path=_extract_path_for_window(snap),
+                        ip_client=ev_ip,
+                        ip_subnet24=ev_subnet24,
+                        username=ev_user.lower() if ev_user else None,
+                        action=ev_action,
+                    )
                 )
-                continue
 
-            if not _match_rule(snap, rule):
-                continue
+                win_sec = int(rule.window_seconds or 300)
+                cutoff = ev_ts - timedelta(seconds=win_sec)
+                while dq and dq[0].ts < cutoff:
+                    dq.popleft()
 
-            gb = list(rule.group_by or [])
-            if not gb:
-                gb = ["server"]
-            group_key = _build_group_key(snap, gb)
+                path_set: set[str] = set()
+                ip_set: set[str] = set()
+                user_set: set[str] = set()
+                server_set: set[str] = set()
+                subnet24_set: set[str] = set()
 
-            win_key = (int(rule.id), group_key)
-            dq = self._windows[win_key]
+                subnet24_counts: Dict[str, int] = defaultdict(int)
 
-            dq.append(
-                _BufItem(
-                    ts=ev_ts,
-                    event_id=_get_from_event(snap, "id"),
-                    raw_id=_get_from_event(snap, "raw_id"),
-                    server=ev_server,
-                    path=_extract_path_for_window(snap),
-                    ip_client=ev_ip,
-                    ip_subnet24=ev_subnet24,
-                    username=ev_user.lower() if ev_user else None,
-                    action=ev_action,
-                )
-            )
+                fail_count = 0
+                success_count = 0
 
-            win_sec = int(rule.window_seconds or 300)
-            cutoff = ev_ts - timedelta(seconds=win_sec)
-            while dq and dq[0].ts < cutoff:
-                dq.popleft()
+                for it in dq:
+                    if it.path:
+                        path_set.add(it.path)
+                    if it.ip_client:
+                        ip_set.add(it.ip_client)
+                    if it.username:
+                        user_set.add(it.username)
+                    if it.server:
+                        server_set.add(it.server)
 
-            path_set: set[str] = set()
-            ip_set: set[str] = set()
-            user_set: set[str] = set()
-            server_set: set[str] = set()
-            subnet24_set: set[str] = set()
+                    if it.ip_subnet24:
+                        subnet24_set.add(it.ip_subnet24)
+                        subnet24_counts[it.ip_subnet24] += 1
 
-            subnet24_counts: Dict[str, int] = defaultdict(int)
+                    if it.action == "fail":
+                        fail_count += 1
+                    elif it.action == "success":
+                        success_count += 1
 
-            fail_count = 0
-            success_count = 0
+                unique_paths = len(path_set)
+                unique_ips = len(ip_set)
+                unique_users = len(user_set)
+                unique_servers = len(server_set)
+                unique_subnets24 = len(subnet24_set)
 
-            for it in dq:
-                if it.path:
-                    path_set.add(it.path)
-                if it.ip_client:
-                    ip_set.add(it.ip_client)
-                if it.username:
-                    user_set.add(it.username)
-                if it.server:
-                    server_set.add(it.server)
+                top_subnet24: Optional[str] = None
+                top_subnet24_hits = 0
+                if subnet24_counts:
+                    top_subnet24, top_subnet24_hits = max(subnet24_counts.items(), key=lambda kv: kv[1])
 
-                if it.ip_subnet24:
-                    subnet24_set.add(it.ip_subnet24)
-                    subnet24_counts[it.ip_subnet24] += 1
-
-                if it.action == "fail":
-                    fail_count += 1
-                elif it.action == "success":
-                    success_count += 1
-
-            unique_paths = len(path_set)
-            unique_ips = len(ip_set)
-            unique_users = len(user_set)
-            unique_servers = len(server_set)
-            unique_subnets24 = len(subnet24_set)
-
-            top_subnet24: Optional[str] = None
-            top_subnet24_hits = 0
-            if subnet24_counts:
-                top_subnet24, top_subnet24_hits = max(subnet24_counts.items(), key=lambda kv: kv[1])
-
-            ctx: Dict[str, Any] = {
-                "count": len(dq),
-                "unique_paths": unique_paths,
-                "unique_ips": unique_ips,
-                "unique_users": unique_users,
-                "unique_servers": unique_servers,
-                "unique_subnets24": unique_subnets24,
-                "top_subnet24_hits": top_subnet24_hits,
-                "top_subnet24": top_subnet24,
-                "fail_count": fail_count,
-                "success_count": success_count,
-                "server": _get_from_event(snap, "server"),
-                "source": src,
-                "event_type": et,
-                "group_key": group_key,
-                "ip_client": _get_from_event(snap, "ip_client"),
-                "ip_subnet24": ev_subnet24,
-                "username": _get_from_event(snap, "username"),
-            }
-
-            if isinstance(geo, dict):
-                ctx["geo_country"] = geo_country
-            if isinstance(asn, dict):
-                ctx["asn_number"] = asn.get("number")
-
-            try:
-                let_block = getattr(rule, "let", None)
-            except Exception:
-                let_block = None
-            ctx.update(_resolve_let_block(snap, let_block))
-
-            cooldown = int(rule.cooldown_seconds or 0)
-
-            # CLAVE anti-deadlock
-            state = _get_or_create_rule_state_locked(db, rule_id=int(rule.id), group_key=group_key)
-            state.last_seen_at = ev_ts
-
-            if cooldown > 0 and state.last_alert_at:
-                if ev_ts < _utc(state.last_alert_at) + timedelta(seconds=cooldown):
-                    db.add(state)
-                    continue
-
-            cond = (rule.condition or "").strip()
-            try:
-                ok = _safe_eval(cond, ctx)
-            except Exception as e:
-                ex = dict(state.extra or {})
-                ex["last_condition_error"] = f"{type(e).__name__}: {e}"
-                ex["last_condition_expr"] = cond
-                state.extra = ex
-                db.add(state)
-                continue
-
-            if not ok:
-                db.add(state)
-                continue
-
-            evidence_cfg = rule.evidence or {}
-            n = int(evidence_cfg.get("last_n", 10))
-
-            last_items = list(dq)[-n:]
-            evidence_ids = [x.event_id for x in last_items if x.event_id is not None]
-
-            raw_samples: List[str] = []
-            if evidence_cfg.get("include_raw", True) and evidence_ids:
-                evs = db.query(Event.id, Event.raw_id).filter(Event.id.in_(evidence_ids)).all()
-                raw_ids = [e.raw_id for e in evs if e.raw_id is not None]
-                if raw_ids:
-                    from app.models.raw_log import RawLog
-                    rows = db.query(RawLog.id, RawLog.raw).filter(RawLog.id.in_(raw_ids)).all()
-                    raw_by_id = {r.id: r.raw for r in rows}
-                    for e in evs:
-                        if e.raw_id in raw_by_id:
-                            raw_samples.append((raw_by_id[e.raw_id] or "")[:500])
-
-            group_values: Dict[str, Any] = {}
-            group_values["server"] = _get_from_event(snap, "server")
-            group_values["ip_client"] = _get_from_event(snap, "ip_client")
-            group_values["username"] = _get_from_event(snap, "username")
-
-            for f in gb:
-                ff = _as_str(f).strip()
-                if not ff:
-                    continue
-                if ff in group_values:
-                    continue
-                try:
-                    group_values[ff] = _get_from_event(snap, ff)
-                except Exception:
-                    group_values[ff] = None
-
-            try:
-                group_values["extra.vhost"] = _get_from_event(snap, "extra.vhost")
-                group_values["extra.geo.country_code"] = _get_from_event(snap, "extra.geo.country_code")
-                group_values["extra.asn.number"] = _get_from_event(snap, "extra.asn.number")
-                group_values["extra.asn.org"] = _get_from_event(snap, "extra.asn.org")
-            except Exception:
-                pass
-
-            first_ev_id = str(evidence_ids[0]) if evidence_ids else None
-            first_s3_key = str(_get_from_event(snap, "s3_key") or _get_from_event(snap, "extra.s3_key") or "") or None
-
-            al = Alert(
-                rule_id=rule.id,
-                rule_name=rule.name,
-                severity=int(rule.severity or 3),
-                server=ev_server,
-                source=src,
-                event_type=et,
-                group_key=group_key,
-                opensearch_event_id=first_ev_id,
-                s3_key=first_s3_key,
-                triggered_at=ev_ts,
-                window_start=cutoff,
-                window_end=ev_ts,
-
-                metrics={
+                ctx: Dict[str, Any] = {
                     "count": len(dq),
                     "unique_paths": unique_paths,
                     "unique_ips": unique_ips,
                     "unique_users": unique_users,
                     "unique_servers": unique_servers,
                     "unique_subnets24": unique_subnets24,
-                    "top_subnet24": top_subnet24,
                     "top_subnet24_hits": top_subnet24_hits,
+                    "top_subnet24": top_subnet24,
                     "fail_count": fail_count,
                     "success_count": success_count,
-                    "window_seconds": win_sec,
-                    "trusted": is_trusted_eff,
-                },
-                evidence={
-                    "event_ids": [str(x) for x in evidence_ids],
-                    "raw_samples": raw_samples,
-                    "group_by": gb,
-                    "group_values": group_values,
-                },
-                status="open",
-            )
-            db.add(al)
+                    "server": _get_from_event(snap, "server"),
+                    "source": src,
+                    "event_type": et,
+                    "group_key": group_key,
+                    "ip_client": _get_from_event(snap, "ip_client"),
+                    "ip_subnet24": ev_subnet24,
+                    "username": _get_from_event(snap, "username"),
+                }
 
-            state.last_alert_at = ev_ts
-            db.add(state)
+                if isinstance(geo, dict):
+                    ctx["geo_country"] = geo_country
+                if isinstance(asn, dict):
+                    ctx["asn_number"] = asn.get("number")
 
-            alerts.append(al)
+                try:
+                    let_block = getattr(rule, "let", None)
+                except Exception:
+                    let_block = None
+                ctx.update(_resolve_let_block(snap, let_block))
+
+                cooldown = int(rule.cooldown_seconds or 0)
+
+                # CLAVE anti-deadlock
+                state = _get_or_create_rule_state_locked(db, rule_id=int(rule.id), group_key=group_key)
+                state.last_seen_at = ev_ts
+
+                if cooldown > 0 and state.last_alert_at:
+                    if ev_ts < _utc(state.last_alert_at) + timedelta(seconds=cooldown):
+                        db.add(state)
+                        continue
+
+                cond = (rule.condition or "").strip()
+                try:
+                    ok = _safe_eval(cond, ctx)
+                except Exception as e:
+                    ex = dict(state.extra or {})
+                    ex["last_condition_error"] = f"{type(e).__name__}: {e}"
+                    ex["last_condition_expr"] = cond
+                    state.extra = ex
+                    db.add(state)
+                    continue
+
+                if not ok:
+                    db.add(state)
+                    continue
+
+                evidence_cfg = rule.evidence or {}
+                n = int(evidence_cfg.get("last_n", 10))
+
+                last_items = list(dq)[-n:]
+                evidence_ids = [x.event_id for x in last_items if x.event_id is not None]
+
+                raw_samples: List[str] = []
+                if evidence_cfg.get("include_raw", True) and evidence_ids:
+                    evs = db.query(Event.id, Event.raw_id).filter(Event.id.in_(evidence_ids)).all()
+                    raw_ids = [e.raw_id for e in evs if e.raw_id is not None]
+                    if raw_ids:
+                        from app.models.raw_log import RawLog
+                        rows = db.query(RawLog.id, RawLog.raw).filter(RawLog.id.in_(raw_ids)).all()
+                        raw_by_id = {r.id: r.raw for r in rows}
+                        for e in evs:
+                            if e.raw_id in raw_by_id:
+                                raw_samples.append((raw_by_id[e.raw_id] or "")[:500])
+
+                group_values: Dict[str, Any] = {}
+                group_values["server"] = _get_from_event(snap, "server")
+                group_values["ip_client"] = _get_from_event(snap, "ip_client")
+                group_values["username"] = _get_from_event(snap, "username")
+
+                for f in gb:
+                    ff = _as_str(f).strip()
+                    if not ff:
+                        continue
+                    if ff in group_values:
+                        continue
+                    try:
+                        group_values[ff] = _get_from_event(snap, ff)
+                    except Exception:
+                        group_values[ff] = None
+
+                try:
+                    group_values["extra.vhost"] = _get_from_event(snap, "extra.vhost")
+                    group_values["extra.geo.country_code"] = _get_from_event(snap, "extra.geo.country_code")
+                    group_values["extra.asn.number"] = _get_from_event(snap, "extra.asn.number")
+                    group_values["extra.asn.org"] = _get_from_event(snap, "extra.asn.org")
+                except Exception:
+                    pass
+
+                first_ev_id = str(evidence_ids[0]) if evidence_ids else None
+                first_s3_key = str(_get_from_event(snap, "s3_key") or _get_from_event(snap, "extra.s3_key") or "") or None
+
+                severity_val = int(rule.severity or 3)
+                context_metadata = {}
+                adjusted_sev_logs = []
+                
+                context_bindings = [b for b in active_bindings if b.role == "context"]
+                for b in context_bindings:
+                    cond_dict = {
+                        b.match_field: {b.operator: b.list_name}
+                    }
+                    if _match_clause_core(snap, cond_dict, tenant_id=tenant_id, db=db):
+                        # Aplicar efectos dinámicos del binding
+                        action_cfg = b.action_config or {}
+                        
+                        # 1. adjust_severity
+                        if "adjust_severity" in action_cfg:
+                            try:
+                                offset = int(action_cfg["adjust_severity"])
+                                original = severity_val
+                                severity_val = max(0, min(30, severity_val + offset))
+                                adjusted_sev_logs.append({
+                                    "binding_id": b.id,
+                                    "list_name": b.list_name,
+                                    "original": original,
+                                    "adjustment": offset,
+                                    "result": severity_val
+                                })
+                            except Exception:
+                                pass
+                                
+                        # 2. set_metadata
+                        if "set_metadata" in action_cfg:
+                            meta_dict = action_cfg["set_metadata"]
+                            if isinstance(meta_dict, dict):
+                                # Aseguramos escritura en namespace controlado
+                                for k, val in meta_dict.items():
+                                    context_metadata[str(k)] = val
+
+                al = Alert(
+                    rule_id=rule.id,
+                    rule_name=rule.name,
+                    severity=severity_val,
+                    server=ev_server,
+                    source=src,
+                    event_type=et,
+                    group_key=group_key,
+                    opensearch_event_id=first_ev_id,
+                    s3_key=first_s3_key,
+                    triggered_at=ev_ts,
+                    window_start=cutoff,
+                    window_end=ev_ts,
+
+                    metrics={
+                        "count": len(dq),
+                        "unique_paths": unique_paths,
+                        "unique_ips": unique_ips,
+                        "unique_users": unique_users,
+                        "unique_servers": unique_servers,
+                        "unique_subnets24": unique_subnets24,
+                        "top_subnet24": top_subnet24,
+                        "top_subnet24_hits": top_subnet24_hits,
+                        "fail_count": fail_count,
+                        "success_count": success_count,
+                        "window_seconds": win_sec,
+                        "trusted": is_trusted_eff,
+                    },
+                    evidence={
+                        "event_ids": [str(x) for x in evidence_ids],
+                        "raw_samples": raw_samples,
+                        "group_by": gb,
+                        "group_values": group_values,
+                        "context": context_metadata,
+                        "severity_adjustments": adjusted_sev_logs,
+                    },
+                    status="open",
+                )
+                db.add(al)
+
+                state.last_alert_at = ev_ts
+                db.add(state)
+
+                alerts.append(al)
+            except Exception as e:
+                logger.error(f"Error procesando regla {getattr(rule, 'name', 'desconocida')}: {e}", exc_info=True)
+                continue
 
         return alerts
 

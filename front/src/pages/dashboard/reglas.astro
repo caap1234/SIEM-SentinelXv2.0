@@ -386,6 +386,43 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
             </div>
 
             <div>
+              <label class="text-[11px] text-[#6B7280]">Operador Global Bindings de Detección</label>
+              <select
+                id="fDetectionBindingsOperator"
+                class="mt-1 w-full h-10 rounded-lg border border-[#E5E7EB] bg-[#F3F4F6] px-3 text-[13px] text-[#111827]
+                      focus:outline-none focus:ring-2 focus:ring-[#F97316]/60 focus:border-transparent"
+              >
+                <option value="AND" selected>AND (Deben coincidir todas las detecciones habilitadas)</option>
+                <option value="OR">OR (Si coincide cualquiera, dispara base rule match)</option>
+              </select>
+              <p class="mt-1 text-[11px] text-[#9CA3AF]">Se evalúa antes de contadores/ventanas.</p>
+            </div>
+          </div>
+
+          <!-- Sección de Bindings (Listas de Seguridad/Confianza) -->
+          <div class="border-t border-[#E5E7EB] pt-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <h4 class="text-[12px] font-semibold text-[#111827]">Bindings de Listas de Seguridad y Excepciones</h4>
+                <p class="text-[10px] text-[#6B7280]">Asocia listas explícitamente a esta regla para Exclusión, Detección o Contexto.</p>
+              </div>
+              <button
+                type="button"
+                id="addBindingBtn"
+                class="h-8 px-3 rounded-lg border border-[#F97316] text-[#F97316] hover:bg-[#F97316]/10 text-[11px] font-semibold transition"
+              >
+                + Asociar Lista
+              </button>
+            </div>
+
+            <div class="space-y-2" id="bindingsContainer">
+              <!-- Renderizado de bindings dinámicos -->
+              <p class="text-[11px] text-[#9CA3AF] italic">No hay listas asociadas actualmente.</p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
               <label class="text-[11px] text-[#6B7280]">emit (JSON)</label>
               <textarea
                 id="fEmit"
@@ -518,6 +555,9 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
     const fCondition = document.getElementById("fCondition");
     const fEvidence = document.getElementById("fEvidence");
     const fEmit = document.getElementById("fEmit");
+    const fDetectionBindingsOperator = document.getElementById("fDetectionBindingsOperator");
+    const bindingsContainer = document.getElementById("bindingsContainer");
+    const addBindingBtn = document.getElementById("addBindingBtn");
 
     // JSON error labels
     const errGroupBy = document.getElementById("errGroupBy");
@@ -533,6 +573,7 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
     // --------- State ----------
     let RULES = [];
     let editingRuleId = null;
+    let localBindings = [];
 
     // ✅ SOLO UNA VEZ: show/hide modal (aquí se arregla tu error)
     const showModal = () => {
@@ -545,6 +586,7 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
       ruleModal?.classList.add("hidden");
       document.body.style.overflow = "";
       editingRuleId = null;
+      localBindings = [];
       if (modalStatus) modalStatus.textContent = "";
       deleteRuleBtn?.classList.add("hidden");
       clearJsonErrors();
@@ -557,6 +599,129 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
     });
 
     closeModalBtn?.addEventListener("click", hideModal);
+
+    function renderLocalBindings() {
+      if (!bindingsContainer) return;
+      bindingsContainer.innerHTML = "";
+      if (localBindings.length === 0) {
+        bindingsContainer.innerHTML = `<p class="text-[11px] text-[#9CA3AF] italic">No hay listas asociadas actualmente.</p>`;
+        return;
+      }
+
+      localBindings.forEach((b, idx) => {
+        const item = document.createElement("div");
+        item.className = "flex flex-wrap items-center gap-2 border border-[#E5E7EB] bg-[#F9FAFB] rounded-lg p-3";
+        
+        // Select Rol
+        const rSel = document.createElement("select");
+        rSel.className = "h-8 rounded-lg border border-[#D1D5DB] bg-white text-[11px] px-2";
+        rSel.innerHTML = `
+          <option value="exclusion" ${b.role === "exclusion" ? "selected" : ""}>Exclusión</option>
+          <option value="detection" ${b.role === "detection" ? "selected" : ""}>Detección</option>
+          <option value="context" ${b.role === "context" ? "selected" : ""}>Contexto</option>
+        `;
+        rSel.addEventListener("change", (e) => {
+          b.role = e.target.value;
+          renderLocalBindings();
+        });
+
+        // Input Nombre Lista
+        const nameIn = document.createElement("input");
+        nameIn.type = "text";
+        nameIn.placeholder = "Nombre lista (ej. whitelist_ip)";
+        nameIn.className = "h-8 rounded-lg border border-[#D1D5DB] bg-white text-[11px] px-2 w-32";
+        nameIn.value = b.list_name || "";
+        nameIn.addEventListener("change", (e) => {
+          b.list_name = e.target.value;
+        });
+
+        // Input Campo ECS
+        const fieldIn = document.createElement("input");
+        fieldIn.type = "text";
+        fieldIn.placeholder = "Campo ECS (ej. source.ip)";
+        fieldIn.className = "h-8 rounded-lg border border-[#D1D5DB] bg-white text-[11px] px-2 w-32";
+        fieldIn.value = b.match_field || "";
+        fieldIn.addEventListener("change", (e) => {
+          b.match_field = e.target.value;
+        });
+
+        // Select Operador
+        const opSel = document.createElement("select");
+        opSel.className = "h-8 rounded-lg border border-[#D1D5DB] bg-white text-[11px] px-2";
+        opSel.innerHTML = `
+          <option value="in_ref" ${b.operator === "in_ref" ? "selected" : ""}>in_ref</option>
+          <option value="not_in_ref" ${b.operator === "not_in_ref" ? "selected" : ""}>not_in_ref</option>
+          <option value="contains_any_ref" ${b.operator === "contains_any_ref" ? "selected" : ""}>contains_any_ref</option>
+          <option value="cidr_match" ${b.operator === "cidr_match" ? "selected" : ""}>cidr_match</option>
+        `;
+        opSel.addEventListener("change", (e) => {
+          b.operator = e.target.value;
+        });
+
+        // Input de Configuración de Acción (solo Contexto)
+        let actionIn = null;
+        if (b.role === "context") {
+          actionIn = document.createElement("input");
+          actionIn.type = "text";
+          actionIn.placeholder = 'Config JSON (ej: {"adjust_severity": -5})';
+          actionIn.className = "h-8 rounded-lg border border-[#D1D5DB] bg-white text-[11px] px-2 w-44";
+          actionIn.value = JSON.stringify(b.action_config || {});
+          actionIn.addEventListener("change", (e) => {
+            try {
+              b.action_config = JSON.parse(e.target.value);
+            } catch {
+              b.action_config = {};
+            }
+          });
+        }
+
+        // Check Enabled
+        const chk = document.createElement("input");
+        chk.type = "checkbox";
+        chk.className = "rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-4 w-4";
+        chk.checked = !!b.enabled;
+        chk.addEventListener("change", (e) => {
+          b.enabled = e.target.checked;
+        });
+
+        const chkLabel = document.createElement("label");
+        chkLabel.className = "text-[11px] text-[#6B7280]";
+        chkLabel.textContent = "Activo";
+
+        // Botón Quitar
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "h-8 w-8 flex items-center justify-center rounded-lg bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 ml-auto";
+        delBtn.textContent = "✕";
+        delBtn.addEventListener("click", () => {
+          localBindings.splice(idx, 1);
+          renderLocalBindings();
+        });
+
+        item.appendChild(rSel);
+        item.appendChild(nameIn);
+        item.appendChild(fieldIn);
+        item.appendChild(opSel);
+        if (actionIn) item.appendChild(actionIn);
+        item.appendChild(chk);
+        item.appendChild(chkLabel);
+        item.appendChild(delBtn);
+
+        bindingsContainer.appendChild(item);
+      });
+    }
+
+    addBindingBtn?.addEventListener("click", () => {
+      localBindings.push({
+        list_name: "",
+        role: "exclusion",
+        match_field: "source.ip",
+        operator: "in_ref",
+        action_config: {},
+        enabled: true
+      });
+      renderLocalBindings();
+    });
 
     function clearJsonErrors() {
       const pairs = [
@@ -775,7 +940,10 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
       fCondition.value = "count >= 10";
       fEvidence.value = '{"last_n": 10, "include_raw": true}';
       fEmit.value = "{}";
+      if (fDetectionBindingsOperator) fDetectionBindingsOperator.value = "OR";
       ruleEnabledToggle?.setState(true);
+      localBindings = [];
+      renderLocalBindings();
       clearJsonErrors();
     }
 
@@ -801,7 +969,11 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
       fEvidence.value = JSON.stringify(rule.evidence ?? {}, null, 2);
       fEmit.value = JSON.stringify(rule.emit ?? {}, null, 2);
 
+      if (fDetectionBindingsOperator) fDetectionBindingsOperator.value = rule.detection_bindings_operator || "OR";
+
       ruleEnabledToggle?.setState(!!rule.enabled);
+      localBindings = rule.bindings ? JSON.parse(JSON.stringify(rule.bindings)) : [];
+      renderLocalBindings();
       clearJsonErrors();
     }
 
@@ -953,6 +1125,7 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
           condition: (fCondition.value || "").trim(),
           evidence: evidence,
           emit: emit,
+          detection_bindings_operator: fDetectionBindingsOperator?.value || "OR",
           let: {},
         };
 
@@ -972,6 +1145,47 @@ const API_BASE = import.meta.env.PUBLIC_API_URL || "http://127.0.0.1:8000";
           return;
         }
         if (!res.ok) throw new Error(await res.text());
+
+        const savedRule = await res.json();
+        const ruleId = savedRule.id;
+
+        const bGetRes = await fetch(`${API_BASE}/rules-v2/${ruleId}/bindings`, { headers: authHeaders() });
+        const existingBindings = bGetRes.ok ? await bGetRes.json() : [];
+
+        for (const eb of existingBindings) {
+          const stillExists = localBindings.some(lb => lb.id === eb.id);
+          if (!stillExists) {
+            await fetch(`${API_BASE}/rules-v2/${ruleId}/bindings/${eb.id}`, {
+              method: "DELETE",
+              headers: authHeaders()
+            });
+          }
+        }
+
+        for (const lb of localBindings) {
+          if (!lb.list_name || !lb.match_field) continue;
+          const bPayload = {
+            list_name: lb.list_name.trim(),
+            role: lb.role,
+            match_field: lb.match_field.trim(),
+            operator: lb.operator,
+            action_config: lb.action_config || {},
+            enabled: !!lb.enabled
+          };
+          if (lb.id) {
+            await fetch(`${API_BASE}/rules-v2/${ruleId}/bindings/${lb.id}`, {
+              method: "PATCH",
+              headers: authHeaders(),
+              body: JSON.stringify(bPayload)
+            });
+          } else {
+            await fetch(`${API_BASE}/rules-v2/${ruleId}/bindings`, {
+              method: "POST",
+              headers: authHeaders(),
+              body: JSON.stringify(bPayload)
+            });
+          }
+        }
 
         if (modalStatus) modalStatus.textContent = "Guardado.";
         hideModal();
