@@ -41,11 +41,10 @@ def export_rules():
         
         # Consultar todas las reglas
         rules_rows = db.execute(text("""
-            SELECT id, name, source, event_type, description, severity, 
-                   window_seconds, cooldown_seconds, version, enabled, 
-                   legacy_list_policy, detection_bindings_operator, 
-                   match_json, condition_expr, group_by, tags, evidence_json, emit_json,
-                   created_at, updated_at
+            SELECT id, name, description, enabled, source, event_type, severity, 
+                   match, group_by, window_seconds, let, condition, cooldown_seconds, 
+                   evidence, emit, tags, version, detection_bindings_operator, 
+                   legacy_list_policy, created_at, updated_at
             FROM rules_v2
             ORDER BY id ASC;
         """)).mappings().all()
