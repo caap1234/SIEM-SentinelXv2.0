@@ -6,29 +6,35 @@ asegurando que las 15 listas tengan nombres explícitos utilizables en Rule Engi
 """
 import os
 import sys
-
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-# Asegurar importación de app desde cualquier directorio o contenedor
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.abspath(os.path.join(current_dir, ".."))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-if "/app" not in sys.path and os.path.exists("/app"):
-    sys.path.insert(0, "/app")
-
-from app.core.config import settings
+def get_database_url():
+    url = os.getenv("DATABASE_URL")
+    if url:
+        return url
+    
+    # Intentar leer desde .env si existe en el directorio del proyecto
+    env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+    if os.path.exists(env_path):
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("DATABASE_URL="):
+                    return line.split("=", 1)[1].strip('"\'')
+    
+    return "postgresql://sentinelx:sentinelx@db:5432/sentinelx_db"
 
 def normalize_list_names():
-    engine = create_engine(settings.DATABASE_URL)
+    db_url = get_database_url()
+    engine = create_engine(db_url)
     SessionLocal = sessionmaker(bind=engine)
     db = SessionLocal()
 
     try:
         print("[*] Normalizando list_name en security_list_entries...")
         
-        # 1. Asignar list_name = list_type donde list_name sea NULL
+        # 1. Asignar list_name = list_type donde list_name sea NULL o vacío
         res = db.execute(text("""
             UPDATE security_list_entries 
             SET list_name = list_type 
