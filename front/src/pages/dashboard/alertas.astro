@@ -1429,6 +1429,15 @@ import HeaderBar from "../../components/dashboard/HeaderBar.astro";
       load();
     });
 
+    [fQ, fIp, fIncident, fDays].forEach((inputEl) => {
+      inputEl?.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          btnApply?.click();
+        }
+      });
+    });
+
     btnReset?.addEventListener("click", () => {
       state = { ...state, server: "", severity: "all", status: "open", days: 7, incident_id: "", ip: "", q: "", page: 1 };
 

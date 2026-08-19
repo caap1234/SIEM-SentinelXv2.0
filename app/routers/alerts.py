@@ -91,7 +91,7 @@ def _entity_like_conditions(
     server: Optional[str],
 ) -> List[Any]:
     """
-    Filtro robusto por entidad textual (user/domain/etc), regla e IP.
+    Filtro robusto por entidad textual (user/domain/etc), regla, servidor e IP.
     """
     needle = (q or "").strip()
     if not needle:
@@ -106,9 +106,11 @@ def _entity_like_conditions(
         exact = f"{server.strip()}|{needle}"
         conds.append(Alert.group_key == exact)
 
-    # contains tail o rule_name o rule_id
+    # Coincidencia por substring en group_key, rule_name, server y rule_id
+    conds.append(Alert.group_key.ilike(needle_like))
     conds.append(Alert.group_key.ilike(like_tail))
     conds.append(Alert.rule_name.ilike(needle_like))
+    conds.append(Alert.server.ilike(needle_like))
     conds.append(sa.cast(Alert.rule_id, sa.Text).ilike(needle_like))
 
     # fallback: JSON text search (menos exacto, pero rescata reglas raras)
