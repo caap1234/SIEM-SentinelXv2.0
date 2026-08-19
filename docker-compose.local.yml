@@ -147,29 +147,6 @@ services:
     command: >
       bash -lc "python -m app.workers.parsing_worker_loop"
 
-  engine_worker:
-    build:
-      context: .
-    container_name: sentinelx-engine-worker
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-      nats:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://sentinelx:SentinelX_Local_2026!@db:5432/sentinelx_db}
-      NATS_URL: ${NATS_URL:-nats://nats:4222}
-      GEOIP_COUNTRY_DB_PATH: ${GEOIP_COUNTRY_DB_PATH:-/geoip/GeoLite2-Country.mmdb}
-      GEOIP_ASN_DB_PATH: ${GEOIP_ASN_DB_PATH:-/geoip/GeoLite2-ASN.mmdb}
-    volumes:
-      - .:/app
-      - ./geoip:/geoip:ro
-    command: >
-      bash -lc "python -m app.workers.engine_worker_loop"
-
   opensearch_worker:
     build:
       context: .

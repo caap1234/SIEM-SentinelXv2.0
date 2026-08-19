@@ -150,34 +150,6 @@ services:
     command: >
       bash -lc "python -m app.workers.parsing_worker_loop"
 
-  engine_worker:
-    build:
-      context: .
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-sentinelx}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-sentinelx_db}"
-      OPENSEARCH_URL: "http://opensearch:9200"
-      NATS_URL: "nats://nats:4222"
-      MINIO_ENDPOINT: "http://minio:9000"
-      GEOIP_COUNTRY_DB_PATH: ${GEOIP_COUNTRY_DB_PATH:-/geoip/GeoLite2-Country.mmdb}
-      GEOIP_ASN_DB_PATH: ${GEOIP_ASN_DB_PATH:-/geoip/GeoLite2-ASN.mmdb}
-      RULES_RELOAD_SECONDS: "${RULES_RELOAD_SECONDS:-600}"
-      ENGINE_WORKER_POLL_SECONDS: "${ENGINE_WORKER_POLL_SECONDS:-1}"
-      ENGINE_WORKER_MAX_PER_CYCLE: "${ENGINE_WORKER_MAX_PER_CYCLE:-200}"
-      ENGINE_WORKER_STALE_SECONDS: "${ENGINE_WORKER_STALE_SECONDS:-3600}"
-    volumes:
-      - .:/app
-      - ./geoip:/geoip:ro
-      - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
-    command: >
-      bash -lc "python -m app.workers.engine_worker_loop"
-
   opensearch_worker:
     build:
       context: .
